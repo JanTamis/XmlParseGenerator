@@ -2,13 +2,13 @@
 using System.Threading.Tasks;
 using XmlParseGenerator.Sample;
 
-public partial class Program
+public class Program
 {
-	private static async Task Main()
+	private async static Task Main()
 	{
 		var model = new Test
 		{
-			//FirstName = "Jan Tamis",
+			FirstName = "Jan Tamis",
 			LastName = "Kossen",
 		};
 

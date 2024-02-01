@@ -133,39 +133,39 @@ public class XmlParserSourceGenerator : IIncrementalGenerator
 				{
 					return await SerializeAsync(value, GetDefaultSettings());
 				}
+				
+				public static async Task<string> SerializeAsync({{type.TypeName}} value, XmlWriterSettings settings)
+				{
+					settings.Async = true;
+				
+					var builder = new StringBuilder();
+					
+					await SerializeAsync(new StringWriter(builder, CultureInfo.InvariantCulture), value, settings);
+				
+					return builder.ToString();
+				}
 
 				public static async Task SerializeAsync(TextWriter textWriter, {{type.TypeName}} value)
 				{
 					await SerializeAsync(textWriter, value, GetDefaultSettings());
 				}
-
-				public static async Task SerializeAsync(Stream stream, {{type.TypeName}} value)
-				{
-					await SerializeAsync(stream, value, GetDefaultSettings());
-				}
-
-				public static async Task<string> SerializeAsync({{type.TypeName}} value, XmlWriterSettings settings)
-				{
-					settings.Async = true;
-
-					var builder = new StringBuilder();
-					
-					await SerializeAsync(new StringWriter(builder, CultureInfo.InvariantCulture), value, settings);
-
-					return builder.ToString();
-				}
-
+				
 				public static async Task SerializeAsync(TextWriter textWriter, {{type.TypeName}} value, XmlWriterSettings settings)
 				{
 					settings.Async = true;
-
+				
 					using var writer = XmlWriter.Create(textWriter, settings);
-			
+				
 					await writer.WriteStartDocumentAsync();
 					await Serialize{{type.TypeName}}Async(writer, value);
 					await writer.WriteEndDocumentAsync();
-			
+				
 					await writer.FlushAsync();
+				}
+			
+				public static async Task SerializeAsync(Stream stream, {{type.TypeName}} value)
+				{
+					await SerializeAsync(stream, value, GetDefaultSettings());
 				}
 
 				public static async Task SerializeAsync(Stream stream, {{type.TypeName}} value, XmlWriterSettings settings)
