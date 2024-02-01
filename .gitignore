@@ -1,0 +1,9 @@
+﻿################################################################################
+# This .gitignore file was automatically created by Microsoft(R) Visual Studio.
+################################################################################
+
+/.vs
+/XmlParseGenerator/XmlParseGenerator/bin/Debug/netstandard2.0
+/XmlParseGenerator/XmlParseGenerator/obj
+/XmlParseGenerator.Sample/bin/Debug/net8.0
+/XmlParseGenerator.Sample/obj

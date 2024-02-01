@@ -1,6 +1,7 @@
 using System;
 using System.Linq;
 using Microsoft.CodeAnalysis;
+using Microsoft.CodeAnalysis.Classification;
 using XmlParseGenerator.Enumerable;
 using XmlParseGenerator.Models;
 
@@ -21,6 +22,7 @@ public class XmlParserSourceGenerator : IIncrementalGenerator
 					.Where(w => w.AttributeClass?.ToDisplayString() == "System.Xml.Serialization.XmlRootAttribute")
 					.Select(s => s.ConstructorArguments[0].Value?.ToString())
 					.FirstOrDefault(),
+				RootNamespace = namedType.ContainingNamespace.ToDisplayString(),
 			};
 
 			result.Namespaces.Add(namedType.ContainingNamespace.ToDisplayString());
@@ -39,6 +41,7 @@ public class XmlParserSourceGenerator : IIncrementalGenerator
 							Name = property.Name,
 							Type = property.Type.Name,
 							SpecialType = property.Type.SpecialType,
+							IsClass = property.Type.IsReferenceType,
 							MemberType = MemberType.Property,
 						};
 						break;
@@ -50,6 +53,7 @@ public class XmlParserSourceGenerator : IIncrementalGenerator
 							Name = field.Name,
 							Type = field.Type.Name,
 							SpecialType = field.Type.SpecialType,
+							IsClass = field.Type.IsReferenceType,
 							MemberType = MemberType.Field,
 						};
 						break;
@@ -103,6 +107,7 @@ public class XmlParserSourceGenerator : IIncrementalGenerator
 	private void Generate(SourceProductionContext context, ItemModel? type)
 	{
 		var namespaces = type.Namespaces
+			.Where(w => w != "<global namespace>" && w != type.RootNamespace)
 			.OrderBy(o => o)
 			.Select(s => $"using {s};\n");
 
@@ -112,96 +117,138 @@ public class XmlParserSourceGenerator : IIncrementalGenerator
 				{{s.Attribute.Name}}="{value.{{s.Name}}}"
 				""")
 			.ToList();
-		
-		var xml = new IndentedStringBuilder(new string('\t', 2));
-		xml.Indent();
-		
-		xml.AppendLineWithoutIndent("<?xml version=\"1.0\" encoding=\"utf-8\"?>");
 
-		if (attributes.Any())
-		{
-			xml.AppendLine($"<{type.RootName ?? type.TypeName} {String.Join(" ", attributes)} xmlns:xsi=\"http://www.w3.org/2001/XMLSchema-instance\" xmlns:xsd=\"http://www.w3.org/2001/XMLSchema\">");
-		}
-		else
-		{
-			xml.AppendLine($"<{type.RootName ?? type.TypeName} xmlns:xsi=\"http://www.w3.org/2001/XMLSchema-instance\" xmlns:xsd=\"http://www.w3.org/2001/XMLSchema\">");
-		}
-		
-		xml.Indent();
-
-		// xml.SetIndent(4);
-		
-		foreach (var member in type.Members)
-		{
-			if (member.Attribute.AttributeType == AttributeType.Element)
-			{
-				xml.AppendLine($"<{member.Attribute.Name}>{{value.{member.Name}}}</{member.Attribute.Name}>");
-			}
-		}
-
-		xml.Unindent();
-		xml.AppendIndent($"</{type.RootName ?? type.TypeName}>");
-		
-		context.AddSource($"{type.TypeName}Serializer.g.cs", $$""""
+		var code = $$""""
 			using System.IO;
+			using System.Text;
+			using System.Globalization;
 			using System.Threading.Tasks;
+			using System.Xml;
 			{{String.Concat(namespaces)}}
+			namespace {{type.RootNamespace}};
+
 			public static class {{type.TypeName}}Serializer
 			{
-				/// <summary>
-				/// Serializes the given object to a string.
-				/// </summary>
-				/// <param name="value">The object to serialize.</param>
-				/// <returns>A string representation of the serialized object.</returns>
-				public static string Serialize({{type.TypeName}} value)
+				public static async Task<string> SerializeAsync({{type.TypeName}} value)
 				{
-					return $"""
-						{{xml}}
-						""";
+					return await SerializeAsync(value, GetDefaultSettings());
 				}
 
-				/// <summary>
-				/// Serializes the given object and writes it to the provided stream.
-				/// </summary>
-				/// <param name="stream">The stream to which the serialized object will be written.</param>
-				/// <param name="value">The object to serialize.</param>
-				public static void Serialize(Stream stream, {{type.TypeName}} value)
+				public static async Task SerializeAsync(TextWriter textWriter, {{type.TypeName}} value)
 				{
-					using var writer = new StreamWriter(stream);
-					writer.Write(Serialize(value));
+					await SerializeAsync(textWriter, value, GetDefaultSettings());
 				}
 
-				/// <summary>
-				/// Serializes the given object and writes it asynchronously to the provided stream.
-				/// </summary>
-				/// <param name="stream">The stream to which the serialized object will be written.</param>
-				/// <param name="value">The object to serialize.</param>
 				public static async Task SerializeAsync(Stream stream, {{type.TypeName}} value)
 				{
-					using var writer = new StreamWriter(stream);
-					await writer.WriteAsync(Serialize(value));
+					await SerializeAsync(stream, value, GetDefaultSettings());
 				}
 
-				/// <summary>
-				/// Serializes the given object and writes it to the provided TextWriter.
-				/// </summary>
-				/// <param name="writer">The TextWriter to which the serialized object will be written.</param>
-				/// <param name="value">The object to serialize.</param>
-				public static void Serialize(TextWriter writer, {{type.TypeName}} value)
+				public static async Task<string> SerializeAsync({{type.TypeName}} value, XmlWriterSettings settings)
 				{
-					writer.Write(Serialize(value));
+					settings.Async = true;
+
+					var builder = new StringBuilder();
+					
+					await SerializeAsync(new StringWriter(builder, CultureInfo.InvariantCulture), value, settings);
+
+					return builder.ToString();
 				}
 
-				/// <summary>
-				/// Serializes the given object and writes it asynchronously to the provided TextWriter.
-				/// </summary>
-				/// <param name="writer">The TextWriter to which the serialized object will be written.</param>
-				/// <param name="value">The object to serialize.</param>
-				public static async Task SerializeAsync(TextWriter writer, {{type.TypeName}} value)
+				public static async Task SerializeAsync(TextWriter textWriter, {{type.TypeName}} value, XmlWriterSettings settings)
 				{
-					await writer.WriteAsync(Serialize(value));
+					settings.Async = true;
+
+					using var writer = XmlWriter.Create(textWriter, settings);
+			
+					await writer.WriteStartDocumentAsync();
+					await Serialize{{type.TypeName}}Async(writer, value);
+					await writer.WriteEndDocumentAsync();
+			
+					await writer.FlushAsync();
 				}
+
+				public static async Task SerializeAsync(Stream stream, {{type.TypeName}} value, XmlWriterSettings settings)
+				{
+					settings.Async = true;
+
+					using var writer = XmlWriter.Create(stream, settings);
+			
+					await writer.WriteStartDocumentAsync();
+					await Serialize{{type.TypeName}}Async(writer, value);
+					await writer.WriteEndDocumentAsync();
+			
+					await writer.FlushAsync();
+				}
+
+				private static XmlWriterSettings GetDefaultSettings()
+				{
+					return new XmlWriterSettings
+					{
+						Indent = true,
+						Async = true,
+					};
+				}
+
+				{{CreateSerializeForType(type)}}
 			}
-			"""");
+			"""";
+
+		context.AddSource($"{type.TypeName}Serializer.g.cs", code);
+	}
+
+	private string CreateSerializeForType(ItemModel? type)
+	{
+		var builder = new IndentedStringBuilder("\t");
+
+		var members = type.Members.ToLookup(g => g.Attribute.AttributeType);
+
+		builder.AppendLineWithoutIndent($"private static async Task Serialize{type.TypeName}Async(XmlWriter writer, {type.TypeName} item)");
+		builder.AppendLine("{");
+		builder.Indent();
+
+		builder.AppendLine($"await writer.WriteStartElementAsync(null, \"{type.RootName ?? type.TypeName}\", null);");
+		builder.AppendLine();
+
+		foreach (var attribute in members[AttributeType.Attribute])
+		{
+			if (attribute.IsClass)
+			{
+				builder.AppendLine($"await writer.WriteAttributeStringAsync(null, \"{attribute.Attribute.Name ?? attribute.Name}\", null, item.{attribute.Name}?.ToString());");
+			}
+			else
+			{
+				builder.AppendLine($"await writer.WriteAttributeStringAsync(null, \"{attribute.Attribute.Name ?? attribute.Name}\", null, item.{attribute.Name}.ToString());");
+			}
+		}
+
+		if (members[AttributeType.Attribute].Any())
+		{
+			builder.AppendLine();
+		}		
+
+		foreach (var attribute in members[AttributeType.Element])
+		{
+			if (attribute.IsClass)
+			{
+				builder.AppendLine($"await writer.WriteElementStringAsync(null, \"{attribute.Attribute.Name ?? attribute.Name}\", null, item.{attribute.Name}?.ToString());");
+			}
+			else
+			{
+				builder.AppendLine($"await writer.WriteElementStringAsync(null, \"{attribute.Attribute.Name ?? attribute.Name}\", null, item.{attribute.Name}.ToString());");
+			}
+		}
+
+		if (members[AttributeType.Element].Any())
+		{
+			builder.AppendLine();
+		}
+
+		builder.AppendLine($"await writer.WriteEndElementAsync();");
+
+		builder.Unindent();
+		builder.AppendIndent("}");
+
+		return builder.ToString();
 	}
 }

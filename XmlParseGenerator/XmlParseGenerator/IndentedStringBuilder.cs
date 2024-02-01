@@ -20,6 +20,13 @@ public class IndentedStringBuilder
 		_builder.AppendLine(value);
 	}
 
+	public void AppendLine()
+	{
+		_builder.Append(_defaultIndent);
+		_builder.Append(new string('\t', _indentLevel));
+		_builder.AppendLine();
+	}
+
 	public void AppendLineWithoutIndent(string value)
 	{
 		_builder.AppendLine(value);

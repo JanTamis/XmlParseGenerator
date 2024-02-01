@@ -8,6 +8,7 @@ public class MemberModel
 {
 	public string Name { get; set; }
 	public string Type { get; set; }
+	public bool IsClass { get; set; }
 	
 	public MemberType MemberType { get; set; }
 
