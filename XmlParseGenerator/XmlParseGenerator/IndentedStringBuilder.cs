@@ -7,23 +7,23 @@ public class IndentedStringBuilder
 	private int _indentLevel;
 	private readonly StringBuilder _builder = new();
 	private readonly string _defaultIndent;
+	private readonly string _indent;
 
-	public IndentedStringBuilder(string defaultIndent)
+	public IndentedStringBuilder(string defaultIndent, string indent)
 	{
 		_defaultIndent = defaultIndent;
+		_indent = indent;
 	}
 
 	public void AppendLine(string value)
 	{
-		_builder.Append(_defaultIndent);
-		_builder.Append(new string('\t', _indentLevel));
+		DoIndent();
 		_builder.AppendLine(value);
 	}
 
 	public void AppendLine()
 	{
-		_builder.Append(_defaultIndent);
-		_builder.Append(new string('\t', _indentLevel));
+		DoIndent();
 		_builder.AppendLine();
 	}
 
@@ -39,8 +39,7 @@ public class IndentedStringBuilder
 
 	public void AppendIndent(string value)
 	{
-		_builder.Append(_defaultIndent);
-		_builder.Append(new string('\t', _indentLevel));
+		DoIndent();
 		_builder.Append(value);
 	}
 	
@@ -57,6 +56,16 @@ public class IndentedStringBuilder
 	public void SetIndent(int indentLevel)
 	{
 		_indentLevel = indentLevel;
+	}
+	
+	private void DoIndent()
+	{
+		_builder.Append(_defaultIndent);
+
+		for (var i = 0; i < _indentLevel; i++)
+		{
+			_builder.Append(_indent);
+		}
 	}
 
 	public override string ToString()

@@ -1,7 +1,8 @@
 using System;
+using System.Collections.Generic;
+using System.Collections.Immutable;
 using System.Linq;
 using Microsoft.CodeAnalysis;
-using Microsoft.CodeAnalysis.Classification;
 using XmlParseGenerator.Enumerable;
 using XmlParseGenerator.Models;
 
@@ -15,90 +16,8 @@ public class XmlParserSourceGenerator : IIncrementalGenerator
 		var temp = context.SyntaxProvider.ForAttributeWithMetadataName("System.SerializableAttribute", (node, token) => true, (syntaxContext, token) =>
 		{
 			var namedType = syntaxContext.TargetSymbol as INamedTypeSymbol;
-			var result = new ItemModel
-			{
-				TypeName = namedType.Name,
-				RootName = namedType.GetAttributes()
-					.Where(w => w.AttributeClass?.ToDisplayString() == "System.Xml.Serialization.XmlRootAttribute")
-					.Select(s => s.ConstructorArguments[0].Value?.ToString())
-					.FirstOrDefault(),
-				RootNamespace = namedType.ContainingNamespace.ToDisplayString(),
-			};
 
-			result.Namespaces.Add(namedType.ContainingNamespace.ToDisplayString());
-
-			foreach (var member in namedType.GetMembers())
-			{
-				MemberModel? memberModel = null;
-
-				switch (member)
-				{
-					case IPropertySymbol { CanBeReferencedByName: true, IsStatic: false, IsIndexer: false } property:
-						result.Namespaces.Add(property.Type.ContainingNamespace.ToDisplayString());
-
-						memberModel = new MemberModel
-						{
-							Name = property.Name,
-							Type = property.Type.Name,
-							SpecialType = property.Type.SpecialType,
-							IsClass = property.Type.IsReferenceType,
-							MemberType = MemberType.Property,
-						};
-						break;
-					case IFieldSymbol { CanBeReferencedByName: true, IsStatic: false } field:
-						result.Namespaces.Add(field.Type.ContainingNamespace.ToDisplayString());
-
-						memberModel = new MemberModel
-						{
-							Name = field.Name,
-							Type = field.Type.Name,
-							SpecialType = field.Type.SpecialType,
-							IsClass = field.Type.IsReferenceType,
-							MemberType = MemberType.Field,
-						};
-						break;
-				}
-
-				if (memberModel is not null)
-				{
-					var attributes = member.GetAttributes();
-
-					foreach (var attribute in attributes)
-					{
-						var fullName = attribute.AttributeClass?.ToDisplayString();
-
-						if (fullName is "System.Xml.Serialization.XmlElementAttribute")
-						{
-							memberModel.Attribute = new AttributeModel()
-							{
-								Name = attribute.NamedArguments
-									.Where(w => w.Key == "ElementName")
-									.Select(s => s.Value.Value?.ToString())
-									.DefaultIfEmpty(attribute.ConstructorArguments[0].Value?.ToString())
-									.FirstOrDefault(),
-								AttributeType = AttributeType.Element
-							};
-						}
-
-						if (fullName is "System.Xml.Serialization.XmlAttributeAttribute")
-						{
-							memberModel.Attribute = new AttributeModel()
-							{
-								Name = attribute.NamedArguments
-									.Where(w => w.Key == "attributeName")
-									.Select(s => s.Value.Value?.ToString())
-									.DefaultIfEmpty(attribute.ConstructorArguments[0].Value?.ToString())
-									.FirstOrDefault(),
-								AttributeType = AttributeType.Attribute
-							};
-						}
-					}
-
-					result.Members.Add(memberModel);
-				}
-			}
-
-			return result;
+			return FillItemModel(namedType);
 		});
 
 		context.RegisterSourceOutput(temp, Generate);
@@ -111,50 +30,107 @@ public class XmlParserSourceGenerator : IIncrementalGenerator
 			.OrderBy(o => o)
 			.Select(s => $"using {s};\n");
 
-		var attributes = type.Members
-			.Where(w => w.Attribute.AttributeType == AttributeType.Attribute)
-			.Select(s => $$"""
-				{{s.Attribute.Name}}="{value.{{s.Name}}}"
-				""")
-			.ToList();
+		var types = new Dictionary<string, string>();
+		var builderText = ParseTypeToBuilder(type, 1, "builder", "AppendLiteral", "AppendFormatted", out var holeCount, out var literalCount);
+		var writerText = ParseTypeToBuilder(type, 1, "textWriter", "Write", "Write", out var writerHoleCount, out var writerLiteralCount);
+
+		CreateSerializeForType(types, type);
 
 		var code = $$""""
 			using System.IO;
 			using System.Text;
 			using System.Globalization;
 			using System.Threading.Tasks;
+			using System.Runtime.CompilerServices;
 			using System.Xml;
 			{{String.Concat(namespaces)}}
 			namespace {{type.RootNamespace}};
 
 			public static class {{type.TypeName}}Serializer
 			{
+				public static string Serialize({{type.TypeName}} value)
+				{
+					var builder = new DefaultInterpolatedStringHandler({{literalCount + 39}}, {{holeCount}});
+					builder.AppendLiteral("<?xml version=\"1.0\" encoding=\"utf-8\"?>");
+					builder.AppendLiteral(Environment.NewLine);
+					
+					{{builderText.Replace("\n", "\n\t\t")}}
+					
+					return builder.ToStringAndClear();
+				}
+				
+				public static string Serialize({{type.TypeName}} value, XmlWriterSettings? settings)
+				{
+					using var builder = new StringWriter();
+					
+					Serialize(builder, value, settings);
+				
+					return builder.ToString();
+				}
+				
+				public static void Serialize(TextWriter textWriter, {{type.TypeName}} value)
+				{
+					textWriter.Write("<?xml version=\"1.0\" encoding=\"utf-8\"?>\n");
+					
+					{{writerText.Replace("\n", "\n\t\t")}}
+					
+					textWriter.Flush();
+				}
+				
+				public static void Serialize(TextWriter textWriter, {{type.TypeName}} value, XmlWriterSettings? settings)
+				{
+					using var writer = XmlWriter.Create(textWriter, settings);
+				
+					writer.WriteStartDocument();
+					Serialize{{type.TypeName}}(writer, value);
+					writer.WriteEndDocument();
+				
+					writer.Flush();
+				}
+				
+				public static void Serialize(Stream stream, {{type.TypeName}} value)
+				{
+					using var writer = new StreamWriter(stream);
+					Serialize(writer, value);
+				}
+				
+				public static void Serialize(Stream stream, {{type.TypeName}} value, XmlWriterSettings? settings)
+				{
+					using var writer = XmlWriter.Create(stream, settings);
+				
+					writer.WriteStartDocument();
+					Serialize{{type.TypeName}}(writer, value);
+					writer.WriteEndDocument();
+				
+					writer.Flush();
+				}
+			
 				public static async Task<string> SerializeAsync({{type.TypeName}} value)
 				{
 					return await SerializeAsync(value, GetDefaultSettings());
 				}
 				
-				public static async Task<string> SerializeAsync({{type.TypeName}} value, XmlWriterSettings settings)
+				public static async Task<string> SerializeAsync({{type.TypeName}} value, XmlWriterSettings? settings)
 				{
 					settings.Async = true;
 				
-					var builder = new StringBuilder();
+					using var builder = new StringWriter();
 					
-					await SerializeAsync(new StringWriter(builder, CultureInfo.InvariantCulture), value, settings);
+					await SerializeAsync(builder, value, settings);
 				
 					return builder.ToString();
 				}
-
+			
 				public static async Task SerializeAsync(TextWriter textWriter, {{type.TypeName}} value)
 				{
 					await SerializeAsync(textWriter, value, GetDefaultSettings());
 				}
 				
-				public static async Task SerializeAsync(TextWriter textWriter, {{type.TypeName}} value, XmlWriterSettings settings)
+				public static async Task SerializeAsync(TextWriter textWriter, {{type.TypeName}} value, XmlWriterSettings? settings)
 				{
 					settings.Async = true;
 				
-					using var writer = XmlWriter.Create(textWriter, settings);
+					await using var writer = XmlWriter.Create(textWriter, settings);
 				
 					await writer.WriteStartDocumentAsync();
 					await Serialize{{type.TypeName}}Async(writer, value);
@@ -167,12 +143,12 @@ public class XmlParserSourceGenerator : IIncrementalGenerator
 				{
 					await SerializeAsync(stream, value, GetDefaultSettings());
 				}
-
-				public static async Task SerializeAsync(Stream stream, {{type.TypeName}} value, XmlWriterSettings settings)
+			
+				public static async Task SerializeAsync(Stream stream, {{type.TypeName}} value, XmlWriterSettings? settings)
 				{
 					settings.Async = true;
-
-					using var writer = XmlWriter.Create(stream, settings);
+			
+					await using var writer = XmlWriter.Create(stream, settings);
 			
 					await writer.WriteStartDocumentAsync();
 					await Serialize{{type.TypeName}}Async(writer, value);
@@ -180,75 +156,311 @@ public class XmlParserSourceGenerator : IIncrementalGenerator
 			
 					await writer.FlushAsync();
 				}
-
+			
 				private static XmlWriterSettings GetDefaultSettings()
 				{
 					return new XmlWriterSettings
 					{
 						Indent = true,
-						Async = true,
 					};
 				}
-
-				{{CreateSerializeForType(type)}}
+			
+				{{String.Join("\n\n\t", types.Values)}}
 			}
 			"""";
 
 		context.AddSource($"{type.TypeName}Serializer.g.cs", code);
 	}
 
-	private string CreateSerializeForType(ItemModel? type)
+	private void CreateSerializeForType(Dictionary<string, string> result, ItemModel? type)
 	{
-		var builder = new IndentedStringBuilder("\t");
+		if (type is null || result.ContainsKey(type.TypeName) || !IsValidType(type.SpecialType))
+		{
+			return;
+		}
+		
+		result.Add(type.TypeName, CreateSerializeForType(type, false));
+		result.Add($"{type.TypeName}Async", CreateSerializeForType(type, true));
 
-		var members = type.Members.ToLookup(g => g.Attribute.AttributeType);
+		foreach (var member in type?.Members ?? System.Linq.Enumerable.Empty<MemberModel>())
+		{
+			CreateSerializeForType(result, member?.Type);
+		}
+	}
 
-		builder.AppendLineWithoutIndent($"private static async Task Serialize{type.TypeName}Async(XmlWriter writer, {type.TypeName} item)");
+	private string CreateSerializeForType(ItemModel? type, bool isAsync)
+	{
+		if (type is null)
+		{
+			return String.Empty;
+		}
+		
+		var async = isAsync ? "async Task" : "void";
+		var asyncKeyword = isAsync ? "await " : String.Empty;
+		var asyncSuffix = isAsync ? "Async" : String.Empty;
+		
+		var builder = new IndentedStringBuilder("\t", "\t");
+
+		var members = type.Members.ToLookup(g => g.Attribute?.AttributeType);
+
+		builder.AppendLineWithoutIndent($"private static {async} Serialize{type.TypeName}{asyncSuffix}(XmlWriter writer, {type.TypeName} item)");
 		builder.AppendLine("{");
 		builder.Indent();
 
-		builder.AppendLine($"await writer.WriteStartElementAsync(null, \"{type.RootName ?? type.TypeName}\", null);");
+		builder.AppendLine($"{asyncKeyword}writer.WriteStartElement{asyncSuffix}(null, \"{type.RootName ?? type.TypeName}\", null);");
 		builder.AppendLine();
 
 		foreach (var attribute in members[AttributeType.Attribute])
 		{
-			if (attribute.IsClass)
+			if (type.IsClass)
 			{
-				builder.AppendLine($"await writer.WriteAttributeStringAsync(null, \"{attribute.Attribute.Name ?? attribute.Name}\", null, item.{attribute.Name}?.ToString());");
+				builder.AppendLine($"{asyncKeyword}writer.WriteAttributeString{asyncSuffix}(null, \"{attribute.Attribute.Name ?? attribute.Name}\", null, item.{attribute.Name}?.ToString());");
 			}
 			else
 			{
-				builder.AppendLine($"await writer.WriteAttributeStringAsync(null, \"{attribute.Attribute.Name ?? attribute.Name}\", null, item.{attribute.Name}.ToString());");
+				builder.AppendLine($"{asyncKeyword}writer.WriteAttributeString{asyncSuffix}(null, \"{attribute.Attribute.Name ?? attribute.Name}\", null, item.{attribute.Name}.ToString());");
 			}
 		}
 
 		if (members[AttributeType.Attribute].Any())
 		{
 			builder.AppendLine();
-		}		
+		}
 
-		foreach (var attribute in members[AttributeType.Element])
+		foreach (var element in members[AttributeType.Element])
 		{
-			if (attribute.IsClass)
+			if (IsValidType(element.Type.SpecialType))
 			{
-				builder.AppendLine($"await writer.WriteElementStringAsync(null, \"{attribute.Attribute.Name ?? attribute.Name}\", null, item.{attribute.Name}?.ToString());");
+				if (element.Type.IsClass)
+				{
+					builder.AppendLine();
+					builder.AppendLine($"if (item.{element.Name} is not null)");
+					builder.AppendLine("{");
+					builder.Indent();
+
+					builder.AppendLine($"{asyncKeyword}Serialize{element.Type.TypeName}{asyncSuffix}(writer, item.{element.Name});");
+
+					builder.Unindent();
+					builder.AppendLine("}");
+				}
+				else
+				{
+					builder.AppendLine($"{asyncKeyword}Serialize{element.Type.TypeName}{asyncSuffix}(writer, item.{element.Name});");					
+				}
 			}
 			else
 			{
-				builder.AppendLine($"await writer.WriteElementStringAsync(null, \"{attribute.Attribute.Name ?? attribute.Name}\", null, item.{attribute.Name}.ToString());");
+				builder.AppendLine($"{asyncKeyword}writer.WriteStartElement{asyncSuffix}(null, \"{element.Attribute.Name ?? element.Name}\", null);");
+
+				if (element.Type.SpecialType == SpecialType.System_String)
+				{
+					builder.AppendLine($"{asyncKeyword}writer.WriteString{asyncSuffix}(item.{element.Name});");
+				}
+				else
+				{
+					builder.AppendLine($"writer.WriteValue(item.{element.Name});");
+				}
+				
+				builder.AppendLine($"{asyncKeyword}writer.WriteEndElement{asyncSuffix}();");
+				builder.AppendLine();
 			}
 		}
-
-		if (members[AttributeType.Element].Any())
-		{
-			builder.AppendLine();
-		}
-
-		builder.AppendLine($"await writer.WriteEndElementAsync();");
+		
+		builder.AppendLine($"{asyncKeyword}writer.WriteEndElement{asyncSuffix}();");
 
 		builder.Unindent();
 		builder.AppendIndent("}");
 
 		return builder.ToString();
+	}
+
+	private ItemModel? FillItemModel(ITypeSymbol? namedType)
+	{
+		if (namedType is null)
+		{
+			return null;
+		}
+
+		var result = new ItemModel
+		{
+			TypeName = namedType.Name,
+			RootName = namedType.GetAttributes()
+				.Where(w => w.AttributeClass?.ToDisplayString() == "System.Xml.Serialization.XmlRootAttribute")
+				.Select(s => s.ConstructorArguments[0].Value?.ToString())
+				.FirstOrDefault(),
+			RootNamespace = namedType.ContainingNamespace.ToDisplayString(),
+			IsClass = namedType.IsReferenceType,
+			SpecialType = namedType.SpecialType,
+		};
+
+		result.Namespaces.Add(namedType.ContainingNamespace.ToDisplayString());
+
+		foreach (var member in namedType.GetMembers())
+		{
+			MemberModel? memberModel = null;
+
+			switch (member)
+			{
+				case IPropertySymbol { CanBeReferencedByName: true, IsStatic: false, IsIndexer: false } property:
+					result.Namespaces.Add(property.Type.ContainingNamespace.ToDisplayString());
+
+					memberModel = new MemberModel
+					{
+						Name = property.Name,
+						Type = FillItemModel(property.Type),
+						MemberType = MemberType.Property,
+					};
+					break;
+				case IFieldSymbol { CanBeReferencedByName: true, IsStatic: false, } field:
+					result.Namespaces.Add(field.Type.ContainingNamespace.ToDisplayString());
+
+					memberModel = new MemberModel
+					{
+						Name = field.Name,
+						Type = FillItemModel(field.Type),
+						MemberType = MemberType.Field,
+					};
+					break;
+			}
+
+			if (memberModel is not null)
+			{
+				var attributes = member.GetAttributes();
+
+				foreach (var attribute in attributes)
+				{
+					var fullName = attribute.AttributeClass?.ToDisplayString();
+
+					memberModel.Attribute = fullName switch
+					{
+						"System.Xml.Serialization.XmlElementAttribute" => new AttributeModel
+						{
+							Name = attribute.NamedArguments
+								.Where(w => w.Key == "ElementName")
+								.Select(s => s.Value.Value?.ToString())
+								.DefaultIfEmpty(attribute.ConstructorArguments[0].Value?.ToString())
+								.FirstOrDefault(),
+							AttributeType = AttributeType.Element
+						},
+						"System.Xml.Serialization.XmlAttributeAttribute" => new AttributeModel
+						{
+							Name = attribute.NamedArguments
+								.Where(w => w.Key == "attributeName")
+								.Select(s => s.Value.Value?.ToString())
+								.DefaultIfEmpty(attribute.ConstructorArguments[0].Value?.ToString())
+								.FirstOrDefault(),
+							AttributeType = AttributeType.Attribute
+						},
+						_ => null,
+					};
+				}
+
+				if (memberModel.Attribute is null)
+				{
+					memberModel.Attribute = new AttributeModel
+					{
+						Name = memberModel.Name,
+						AttributeType = AttributeType.Element
+					};
+				}
+
+				result.Members.Add(memberModel);
+			}
+		}
+
+		return result;
+	}
+
+	private string ParseTypeToBuilder(ItemModel? type, int indent, string typeName, string stringMethod, string valueMethod, out int holeCount, out int literalCount)
+	{
+		holeCount = 0;
+		literalCount = 0;
+		
+		var result = new IndentedStringBuilder(String.Empty, "\t");
+		
+		result.AppendLine($"{typeName}.{stringMethod}(\"<{type.RootName ?? type.TypeName}\");");
+
+		foreach (var attribute in type.Members.Where(w => w.Attribute?.AttributeType == AttributeType.Attribute))
+		{
+			result.AppendLine($"{typeName}.{stringMethod}(\" {attribute.Attribute.Name ?? attribute.Name}=\");");
+			result.AppendLine($"{typeName}.{valueMethod}(value.{attribute.Name});");
+			result.AppendLine($"""{typeName}.{stringMethod}("\"");""");
+
+			literalCount += 4 + (attribute.Attribute.Name ?? attribute.Name).Length;
+			holeCount++;
+		}
+
+		result.AppendLine($"""{typeName}.{stringMethod}(">");""");
+		result.AppendLine($"""{typeName}.{stringMethod}(Environment.NewLine);""");
+		literalCount += 3;
+
+		var indentString = new string(' ', indent * 2);
+
+		foreach (var attribute in type.Members.Where(w => w.Attribute?.AttributeType == AttributeType.Element))
+		{
+			var indentText = attribute.Type.IsClass ? "\t" : String.Empty;
+			
+			if (attribute.Type.IsClass)
+			{
+				result.AppendLine($"if (value.{attribute.Name} != null)");
+				result.AppendLine("{");
+			}
+			
+			result.AppendLine($"""{indentText}{typeName}.{stringMethod}("{indentString}<{attribute.Attribute.Name ?? attribute.Name}>");""");
+			literalCount += 2 + indentString.Length + (attribute.Attribute.Name ?? attribute.Name).Length;
+
+			if (attribute.Type.SpecialType == SpecialType.System_String)
+			{
+				result.AppendLine($"{indentText}{typeName}.{stringMethod}(value.{attribute.Name});");
+			}
+			else
+			{
+				result.AppendLine($"{indentText}{typeName}.{valueMethod}(value.{attribute.Name});");
+			}
+			
+			result.AppendLine($"""{indentText}{typeName}.{stringMethod}("<{attribute.Attribute.Name ?? attribute.Name}>");""");
+			result.AppendLine($"""{indentText}{typeName}.{stringMethod}(Environment.NewLine);""");
+			literalCount += 3 + indentString.Length + (attribute.Attribute.Name ?? attribute.Name).Length;
+
+			if (attribute.Type.IsClass)
+			{
+				result.AppendLine("}");
+			}
+			holeCount++;
+		}
+
+		result.Append($"{typeName}.{stringMethod}(\"</{type.RootName ?? type.TypeName}>\");");
+		literalCount += 3 + (type.RootName ?? type.TypeName).Length;
+
+		return result.ToString();
+	}
+
+	private bool IsValidType(SpecialType type)
+	{
+		return type is not SpecialType.System_Boolean and not 
+			SpecialType.System_Byte and not
+			SpecialType.System_Char and not
+			SpecialType.System_Decimal and not
+			SpecialType.System_Double and not
+			SpecialType.System_Int16 and not
+			SpecialType.System_Int32 and not
+			SpecialType.System_Int64 and not
+			SpecialType.System_SByte and not
+			SpecialType.System_Single and not
+			SpecialType.System_String and not
+			SpecialType.System_UInt16 and not
+			SpecialType.System_UInt32 and not
+			SpecialType.System_DateTime and not
+			SpecialType.System_Enum and not
+			SpecialType.System_UInt64;
+	}
+	
+	private bool IsCollectionType(SpecialType type)
+	{
+		return type is SpecialType.System_Array or 
+			SpecialType.System_Collections_Generic_IEnumerable_T or 
+			SpecialType.System_Collections_Generic_IList_T or 
+			SpecialType.System_Collections_Generic_IReadOnlyCollection_T or
+			SpecialType.System_Collections_Generic_ICollection_T;
 	}
 }

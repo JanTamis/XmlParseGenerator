@@ -13,4 +13,7 @@ public class Test
 
 	[XmlElement("lastName")]
 	public string LastName { get; set; }
+	
+	[XmlElement("age")]
+	public int Age { get; set; }
 }
