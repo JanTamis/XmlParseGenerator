@@ -16,4 +16,6 @@ public class Test
 	
 	[XmlElement("age")]
 	public int Age { get; set; }
+	
+	public Test Parent { get; set; }
 }

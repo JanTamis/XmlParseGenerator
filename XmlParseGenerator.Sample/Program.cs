@@ -1,10 +1,9 @@
 ﻿using System;
 using System.IO;
-using System.Runtime.CompilerServices;
 using System.Threading.Tasks;
+using System.Xml;
 using System.Xml.Serialization;
 using BenchmarkDotNet.Attributes;
-using BenchmarkDotNet.Running;
 using XmlParseGenerator.Sample;
 
 public class Program
@@ -15,11 +14,12 @@ public class Program
 		{
 			FirstName = "Jan Tamis",
 			LastName = "Kossen",
+			Age = 26,
 		};
 
-		// Console.WriteLine(Serializer.Serialize(model));
+		var result = await TestSerializer.SerializeAsync(model);
 
-		BenchmarkRunner.Run<TestClass>();
+		var resultObject = TestSerializer.Deserialize(result);
 	}
 }
 
@@ -33,19 +33,21 @@ public class TestClass
 		Age = 26,
 	};
 	
-	private readonly MemoryStream _stream = new();
-
 	private readonly XmlSerializer _serializer = new(typeof(Test));
 
 	[Benchmark(Baseline = true)]
-	public void Default()
+	public string Default()
 	{
-		_serializer.Serialize(_stream, _test);
+		using var builder = new StringWriter();
+
+		_serializer.Serialize(builder, _test);
+
+		return builder.ToString();
 	}
 
 	[Benchmark]
-	public void Generator()
+	public string Generator()
 	{
-		TestSerializer.Serialize(_stream, _test);
+		return TestSerializer.Serialize(_test);
 	}
 }

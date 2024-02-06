@@ -1,3 +1,4 @@
+using System;
 using System.Text;
 
 namespace XmlParseGenerator;
@@ -58,6 +59,11 @@ public class IndentedStringBuilder
 		_indentLevel = indentLevel;
 	}
 	
+	public IDisposable IndentScope()
+	{
+		return new IndentDisposable(this);
+	}
+	
 	private void DoIndent()
 	{
 		_builder.Append(_defaultIndent);
@@ -67,9 +73,27 @@ public class IndentedStringBuilder
 			_builder.Append(_indent);
 		}
 	}
+	
+	
 
 	public override string ToString()
 	{
 		return _builder.ToString();
+	}
+	
+	public class IndentDisposable : IDisposable
+	{
+		private readonly IndentedStringBuilder _builder;
+
+		public IndentDisposable(IndentedStringBuilder builder)
+		{
+			_builder = builder;
+			_builder.Indent();
+		}
+
+		public void Dispose()
+		{
+			_builder.Unindent();
+		}
 	}
 }
