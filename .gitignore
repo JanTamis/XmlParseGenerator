@@ -7,3 +7,5 @@
 /XmlParseGenerator/XmlParseGenerator/obj
 /XmlParseGenerator.Sample/bin/Debug/net8.0
 /XmlParseGenerator.Sample/obj
+/XmlParseGenerator.Sample/bin/Release/net8.0
+/XmlParseGenerator/XmlParseGenerator/bin/Release/netstandard2.0
