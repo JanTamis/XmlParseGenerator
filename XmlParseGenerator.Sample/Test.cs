@@ -1,5 +1,6 @@
 ﻿// See https://aka.ms/new-console-template for more information
 using System;
+using System.Collections.Generic;
 using System.Xml.Serialization;
 
 namespace XmlParseGenerator.Sample;
@@ -16,6 +17,7 @@ public class Test
 	
 	[XmlElement("age")]
 	public int Age { get; set; }
-	
-	public Test Parent { get; set; }
+
+	[XmlElement("children")]
+	public IEnumerable<Test> Children { get; set; }
 }

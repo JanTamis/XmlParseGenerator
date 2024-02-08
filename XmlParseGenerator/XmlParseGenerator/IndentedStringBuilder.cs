@@ -63,7 +63,12 @@ public class IndentedStringBuilder
 	{
 		return new IndentDisposable(this);
 	}
-	
+
+	public IDisposable IndentBlock()
+	{
+		return new BlockIndentDisposable(this);
+	}
+
 	private void DoIndent()
 	{
 		_builder.Append(_defaultIndent);
@@ -74,8 +79,6 @@ public class IndentedStringBuilder
 		}
 	}
 	
-	
-
 	public override string ToString()
 	{
 		return _builder.ToString();
@@ -94,6 +97,24 @@ public class IndentedStringBuilder
 		public void Dispose()
 		{
 			_builder.Unindent();
+		}
+	}
+
+	public class BlockIndentDisposable : IDisposable
+	{
+		private readonly IndentedStringBuilder _builder;
+
+		public BlockIndentDisposable(IndentedStringBuilder builder)
+		{
+			_builder = builder;
+			_builder.AppendLine("{");
+			_builder.Indent();
+		}
+
+		public void Dispose()
+		{
+			_builder.Unindent();
+			_builder.AppendLine("}");
 		}
 	}
 }

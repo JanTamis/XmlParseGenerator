@@ -4,6 +4,7 @@ using System.Threading.Tasks;
 using System.Xml;
 using System.Xml.Serialization;
 using BenchmarkDotNet.Attributes;
+using BenchmarkDotNet.Running;
 using XmlParseGenerator.Sample;
 
 public class Program
@@ -15,11 +16,19 @@ public class Program
 			FirstName = "Jan Tamis",
 			LastName = "Kossen",
 			Age = 26,
+			Children = [new Test()
+			{
+				FirstName = "Marry Nel",
+				LastName = "Kossen",
+				Age = 28,
+			}]
 		};
 
 		var result = await TestSerializer.SerializeAsync(model);
 
 		var resultObject = TestSerializer.Deserialize(result);
+
+		BenchmarkRunner.Run<TestClass>();
 	}
 }
 
@@ -31,23 +40,43 @@ public class TestClass
 		FirstName = "Jan Tamis",
 		LastName = "Kossen",
 		Age = 26,
+		Children = [new Test()
+		{
+			FirstName = "Marry Nel",
+			LastName = "Kossen",
+			Age = 28,
+		}]
 	};
-	
+
+	private string _toDeserialize;
+
 	private readonly XmlSerializer _serializer = new(typeof(Test));
 
-	[Benchmark(Baseline = true)]
-	public string Default()
+	public TestClass()
 	{
-		using var builder = new StringWriter();
+		_toDeserialize = TestSerializer.Serialize(_test);
+	}
 
-		_serializer.Serialize(builder, _test);
+	[Benchmark(Baseline = true)]
+	public Test Default()
+	{
+		using var builder = new StringReader(_toDeserialize);
 
-		return builder.ToString();
+		return _serializer.Deserialize(builder) as Test;
 	}
 
 	[Benchmark]
-	public string Generator()
+	public Test DefaultSlow()
 	{
-		return TestSerializer.Serialize(_test);
+		var serializer = new XmlSerializer(typeof(Test));
+		using var builder = new StringReader(_toDeserialize);
+
+		return serializer.Deserialize(builder) as Test;
+	}
+
+	[Benchmark]
+	public Test Generator()
+	{
+		return TestSerializer.Deserialize(_toDeserialize);
 	}
 }

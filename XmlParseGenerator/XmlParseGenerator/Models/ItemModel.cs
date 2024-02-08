@@ -12,6 +12,8 @@ public record ItemModel
 
 	public SpecialType SpecialType { get; set; }
 
+	public bool IsCollection { get; set; }
+
 	public HashSet<string> Namespaces { get; set; } = new();
 	
 	public List<MemberModel> Members { get; set; } = new();
