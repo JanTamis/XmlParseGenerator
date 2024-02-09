@@ -1,5 +1,6 @@
 ﻿using System;
 using System.IO;
+using System.Linq;
 using System.Threading.Tasks;
 using System.Xml;
 using System.Xml.Serialization;
@@ -16,17 +17,27 @@ public class Program
 			FirstName = "Jan Tamis",
 			LastName = "Kossen",
 			Age = 26,
-			Children = [new Test()
-			{
-				FirstName = "Marry Nel",
-				LastName = "Kossen",
-				Age = 28,
-			}]
+			Children =
+			[
+				new Test()
+				{
+					FirstName = "Marry Nel",
+					LastName = "Kossen",
+					Age = 28,
+				},
+				new Test()
+				{
+					FirstName = "Marry Nel",
+					LastName = "Kossen",
+					Age = 28,
+				}
+			]
 		};
 
 		var result = await TestSerializer.SerializeAsync(model);
 
 		var resultObject = TestSerializer.Deserialize(result);
+		var children = resultObject.Children.ToArray();
 
 		BenchmarkRunner.Run<TestClass>();
 	}
@@ -40,12 +51,15 @@ public class TestClass
 		FirstName = "Jan Tamis",
 		LastName = "Kossen",
 		Age = 26,
-		Children = [new Test()
-		{
-			FirstName = "Marry Nel",
-			LastName = "Kossen",
-			Age = 28,
-		}]
+		Children =
+		[
+			new Test()
+			{
+				FirstName = "Marry Nel",
+				LastName = "Kossen",
+				Age = 28,
+			}
+		]
 	};
 
 	private string _toDeserialize;
