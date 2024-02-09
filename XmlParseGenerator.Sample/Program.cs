@@ -30,14 +30,13 @@ public class Program
 					FirstName = "Marry Nel",
 					LastName = "Kossen",
 					Age = 28,
-				}
+				},
 			]
 		};
 
 		var result = await TestSerializer.SerializeAsync(model);
 
 		var resultObject = TestSerializer.Deserialize(result);
-		var children = resultObject.Children.ToArray();
 
 		BenchmarkRunner.Run<TestClass>();
 	}

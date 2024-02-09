@@ -40,7 +40,7 @@ public class XmlParserSourceGenerator : IIncrementalGenerator
 
 		CreateSerializeForType(serializerTypes, type);
 		CreateDeserializeForType(deserializerTypes, type);
-		
+
 		var code = $$""""
 			using System.Collections.Generic;
 			using System.IO;
@@ -169,7 +169,7 @@ public class XmlParserSourceGenerator : IIncrementalGenerator
 				    
 				    if (xmlReader.Name == "{{type.RootName ?? type.TypeName}}")
 				    {
-				      return Deserialize{{type.TypeName}}(xmlReader.ReadSubtree(), 1);
+				      return Deserialize{{type.TypeName}}(xmlReader, 1);
 				    }
 					}
 					
@@ -209,16 +209,8 @@ public class XmlParserSourceGenerator : IIncrementalGenerator
 			return;
 		}
 
-		if (type.IsCollection)
-		{
-
-		}
-		else
-		{
-			result.Add(type.TypeName, CreateSerializeForType(type, false));
-			result.Add($"{type.TypeName}Async", CreateSerializeForType(type, true));
-		}
-
+		result.Add(type.TypeName, CreateSerializeForType(type, false));
+		result.Add($"{type.TypeName}Async", CreateSerializeForType(type, true));
 
 		foreach (var member in type?.Members ?? System.Linq.Enumerable.Empty<MemberModel>())
 		{
@@ -239,16 +231,28 @@ public class XmlParserSourceGenerator : IIncrementalGenerator
 		result.Add(type.TypeName, CreateDeserializeForType(type, false));
 		result.Add($"{type.TypeName}Async", CreateDeserializeForType(type, true));
 
-		if (type.IsCollection)
+		if (type.CollectionType != CollectionType.None)
 		{
-			result.Add($"{type.TypeName}Collection", CreateDeserializeForTypeCollection(type));
+			result.Add($"{type.TypeName}{type.CollectionType}", type.CollectionType switch
+			{
+				CollectionType.List => CreateDeserializeForTypeList(type),
+				CollectionType.Enumerable => CreateDeserializeForTypeEnumerable(type),
+			});
 		}
+
 
 		foreach (var member in type?.Members ?? System.Linq.Enumerable.Empty<MemberModel>())
 		{
-			if (member.Type.IsCollection && !result.ContainsKey($"{member.Type.TypeName}Collection"))
+			if (member.Type.CollectionType != CollectionType.None)
 			{
-				result.Add($"{member.Type.TypeName}Collection", CreateDeserializeForTypeCollection(type));
+				if (!result.ContainsKey($"{type.TypeName}{type.CollectionType}"))
+				{
+					result.Add($"{member.Type.TypeName}{member.Type.CollectionType}", member.Type.CollectionType switch
+					{
+						CollectionType.List => CreateDeserializeForTypeList(type),
+						CollectionType.Enumerable => CreateDeserializeForTypeEnumerable(type),
+					});
+				}
 			}
 			else if (!result.ContainsKey(member.Type.TypeName))
 			{
@@ -299,7 +303,7 @@ public class XmlParserSourceGenerator : IIncrementalGenerator
 				var elementName = "item";
 				var classCheck = $"{elementName}.{element.Name}";
 
-				if (element.Type.IsCollection)
+				if (element.Type.CollectionType != CollectionType.None)
 				{
 					var suffix = String.Empty;
 
@@ -352,7 +356,7 @@ public class XmlParserSourceGenerator : IIncrementalGenerator
 					builder.AppendLine();
 				}
 
-				if (element.Type.IsCollection)
+				if (element.Type.CollectionType != CollectionType.None)
 				{
 					builder.AppendLine();
 					builder.AppendLine($"{asyncKeyword}writer.WriteEndElement{asyncSuffix}();");
@@ -421,13 +425,13 @@ public class XmlParserSourceGenerator : IIncrementalGenerator
 							}
 							else
 							{
-								if (element.Type.IsCollection)
+								if (element.Type.CollectionType != CollectionType.None)
 								{
-									builder.AppendLine($"result.{element.Name} = Deserialize{element.Type.TypeName}Collection(reader.ReadSubtree(), 1).ToList();");
+									builder.AppendLine($"result.{element.Name} = Deserialize{element.Type.TypeName}{element.Type.CollectionType}(reader.ReadSubtree(), 1);");
 								}
 								else
 								{
-									builder.AppendLine($"result.{element.Name} = {asyncKeyword}Deserialize{element.Type.TypeName}{asyncSuffix}(reader.ReadSubtree(), depth + 1);");
+									builder.AppendLine($"result.{element.Name} = {asyncKeyword}Deserialize{element.Type.TypeName}{asyncSuffix}(reader, depth + 1);");
 								}
 							}
 
@@ -444,7 +448,7 @@ public class XmlParserSourceGenerator : IIncrementalGenerator
 		return builder.ToString();
 	}
 
-	private string CreateDeserializeForTypeCollection(ItemModel? type)
+	private string CreateDeserializeForTypeEnumerable(ItemModel? type)
 	{
 		if (type is null)
 		{
@@ -454,24 +458,56 @@ public class XmlParserSourceGenerator : IIncrementalGenerator
 		var builder = new IndentedStringBuilder("\t", "\t");
 
 		builder.AppendLineWithoutIndent($"private static IEnumerable<{type.TypeName}> Deserialize{type.TypeName}Collection(XmlReader reader, int depth)");
-		using (_ = builder.IndentBlock())
+		using (builder.IndentBlock())
 		{
-			builder.AppendLine($"while (reader.Read())");
-			using (_ = builder.IndentBlock())
+			using (builder.IndentBlock($"while (reader.Read())"))
 			{
-				builder.AppendLine("if (reader.Depth != depth || !reader.IsStartElement())");
-				using (_ = builder.IndentScope())
+				using (builder.IndentScope("if (reader.Depth != depth || !reader.IsStartElement())"))
 				{
 					builder.AppendLine("continue;");
 				}
 				builder.AppendLine();
 
-				builder.AppendLine($"if (reader.Name == \"{type.RootName}\")");
-				using (_ = builder.IndentBlock())
+				using (builder.IndentBlock($"if (reader.Name == \"{type.RootName}\")"))
 				{
 					builder.AppendLine($"yield return Deserialize{type.TypeName}(reader.ReadSubtree(), 1);");
 				}
 			}
+		}
+
+		return builder.ToString();
+	}
+
+	private string CreateDeserializeForTypeList(ItemModel? type)
+	{
+		if (type is null)
+		{
+			return String.Empty;
+		}
+
+		var builder = new IndentedStringBuilder("\t", "\t");
+
+		builder.AppendLineWithoutIndent($"private static List<{type.TypeName}> Deserialize{type.TypeName}List(XmlReader reader, int depth)");
+		using (builder.IndentBlock())
+		{
+			builder.AppendLine($"var result = new List<{type.TypeName}>();");
+			builder.AppendLine();
+			using (builder.IndentBlock($"while (reader.Read())"))
+			{
+				using (builder.IndentScope("if (reader.Depth != depth || !reader.IsStartElement())"))
+				{
+					builder.AppendLine("continue;");
+				}
+				builder.AppendLine();
+
+				using (builder.IndentBlock($"if (reader.Name == \"{type.RootName}\")"))
+				{
+					builder.AppendLine($"result.Add(Deserialize{type.TypeName}(reader.ReadSubtree(), 1));");
+					builder.AppendLine("reader.Read();");
+				}
+			}
+			builder.AppendLine();
+			builder.AppendLine("return result;");
 		}
 
 		return builder.ToString();
@@ -514,11 +550,11 @@ public class XmlParserSourceGenerator : IIncrementalGenerator
 		{
 			result.TypeName = arrayInfo.ElementType.Name;
 			result.RootNamespace = arrayInfo.ElementType.ContainingNamespace.ToDisplayString();
-			result.IsCollection = true;
+			result.CollectionType = CollectionType.Array;
 			result.SpecialType = arrayInfo.ElementType.SpecialType;
 			result.IsClass = arrayInfo.ElementType.IsReferenceType;
 
-			types.Add($"{result.TypeName}[]", result);
+			types.Add($"{result.TypeName}Array", result);
 
 			result.Namespaces.Add(arrayInfo.ElementType.ContainingNamespace.ToDisplayString());
 		}
@@ -527,11 +563,11 @@ public class XmlParserSourceGenerator : IIncrementalGenerator
 			var type = ienumerableType.TypeArguments[0];
 			result.TypeName = type.Name;
 			result.RootNamespace = type.ContainingNamespace.ToDisplayString();
-			result.IsCollection = true;
+			result.CollectionType = CollectionType.Enumerable;
 			result.SpecialType = type.SpecialType;
 			result.IsClass = type.IsReferenceType;
 
-			types.Add($"{result.TypeName}[]", result);
+			types.Add($"{result.TypeName}Enumerable", result);
 
 			result.Namespaces.Add(type.ContainingNamespace.ToDisplayString());
 		}
@@ -540,11 +576,11 @@ public class XmlParserSourceGenerator : IIncrementalGenerator
 			var type = listType.TypeArguments[0];
 			result.TypeName = type.Name;
 			result.RootNamespace = type.ContainingNamespace.ToDisplayString();
-			result.IsCollection = true;
+			result.CollectionType = CollectionType.List;
 			result.SpecialType = type.SpecialType;
 			result.IsClass = type.IsReferenceType;
 
-			types.Add($"{result.TypeName}[]", result);
+			types.Add($"{result.TypeName}List", result);
 		}
 		else
 		{

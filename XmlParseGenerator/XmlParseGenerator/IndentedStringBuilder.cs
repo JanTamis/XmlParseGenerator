@@ -64,8 +64,20 @@ public class IndentedStringBuilder
 		return new IndentDisposable(this);
 	}
 
+	public IDisposable IndentScope(string value)
+	{
+		AppendLine(value);
+		return new IndentDisposable(this);
+	}
+
 	public IDisposable IndentBlock()
 	{
+		return new BlockIndentDisposable(this);
+	}
+
+	public IDisposable IndentBlock(string value)
+	{
+		AppendLine(value);
 		return new BlockIndentDisposable(this);
 	}
 

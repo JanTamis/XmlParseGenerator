@@ -1,5 +1,6 @@
 using System.Collections.Generic;
 using Microsoft.CodeAnalysis;
+using XmlParseGenerator.Enumerable;
 
 namespace XmlParseGenerator.Models;
 
@@ -12,7 +13,7 @@ public record ItemModel
 
 	public SpecialType SpecialType { get; set; }
 
-	public bool IsCollection { get; set; }
+	public CollectionType CollectionType { get; set; }
 
 	public HashSet<string> Namespaces { get; set; } = new();
 	
