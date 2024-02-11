@@ -57,11 +57,41 @@ public class TestClass
 				FirstName = "Marry Nel",
 				LastName = "Kossen",
 				Age = 28,
-			}
+			},
+			new Test()
+			{
+				FirstName = "Marry Nel",
+				LastName = "Kossen",
+				Age = 28,
+			},
+			new Test()
+			{
+				FirstName = "Marry Nel",
+				LastName = "Kossen",
+				Age = 28,
+			},
+			new Test()
+			{
+				FirstName = "Marry Nel",
+				LastName = "Kossen",
+				Age = 28,
+			},
+			new Test()
+			{
+				FirstName = "Marry Nel",
+				LastName = "Kossen",
+				Age = 28,
+			},
+			new Test()
+			{
+				FirstName = "Marry Nel",
+				LastName = "Kossen",
+				Age = 28,
+			},
 		]
 	};
 
-	private string _toDeserialize;
+	private readonly string _toDeserialize;
 
 	private readonly XmlSerializer _serializer = new(typeof(Test));
 
@@ -78,7 +108,7 @@ public class TestClass
 		return _serializer.Deserialize(builder) as Test;
 	}
 
-	[Benchmark]
+	// [Benchmark]
 	public Test DefaultSlow()
 	{
 		var serializer = new XmlSerializer(typeof(Test));

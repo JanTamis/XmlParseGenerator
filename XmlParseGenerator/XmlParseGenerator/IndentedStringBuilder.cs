@@ -81,6 +81,17 @@ public class IndentedStringBuilder
 		return new BlockIndentDisposable(this);
 	}
 
+	public IDisposable IndentBlockNoNewline()
+	{
+		return new BlockIndentNoNewLineDisposable(this);
+	}
+
+	public IDisposable IndentBlockNoNewline(string value)
+	{
+		AppendLine(value);
+		return new BlockIndentNoNewLineDisposable(this);
+	}
+
 	private void DoIndent()
 	{
 		_builder.Append(_defaultIndent);
@@ -127,6 +138,24 @@ public class IndentedStringBuilder
 		{
 			_builder.Unindent();
 			_builder.AppendLine("}");
+		}
+	}
+
+	public class BlockIndentNoNewLineDisposable : IDisposable
+	{
+		private readonly IndentedStringBuilder _builder;
+
+		public BlockIndentNoNewLineDisposable(IndentedStringBuilder builder)
+		{
+			_builder = builder;
+			_builder.AppendLine("{");
+			_builder.Indent();
+		}
+
+		public void Dispose()
+		{
+			_builder.Unindent();
+			_builder.AppendIndent("}");
 		}
 	}
 }
