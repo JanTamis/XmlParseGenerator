@@ -204,10 +204,30 @@ public class XmlParserSourceGenerator : IIncrementalGenerator
 					
 					return new {{type.TypeName}}();
 				}
+
+				public static async Task<{{type.TypeName}}> DeserializeAsync(string value)
+				{
+					var xmlReader = XmlReader.Create(new StringReader(value), defaultReaderSettings);
+					                              
+					while (await xmlReader.ReadAsync())
+					{
+				    if (xmlReader.Depth != 0 || !xmlReader.IsStartElement())
+				    {
+							continue;
+				    }
+				    
+				    if (xmlReader.Name == "{{type.RootName ?? type.TypeName}}")
+				    {
+				      return await Deserialize{{type.TypeName}}Async(xmlReader, 1);
+				    }
+					}
+					
+					return new {{type.TypeName}}();
+				}
 			
 				{{String.Join("\n\t", serializerTypes.Values)}}
 				
-				{{String.Join("\n\t", deserializerTypes.Values)}}
+				{{String.Join("\n\n\t", deserializerTypes.Values)}}
 			}
 			"""";
 
@@ -247,24 +267,37 @@ public class XmlParserSourceGenerator : IIncrementalGenerator
 		{
 			result.Add($"{type.TypeName}{type.CollectionType}", type.CollectionType switch
 			{
-				CollectionType.List => CreateDeserializeForTypeList(type),
-				CollectionType.Enumerable => CreateDeserializeForTypeEnumerable(type),
-				CollectionType.Array => CreateDeserializeForTypeArray(type),
+				CollectionType.List => CreateDeserializeForTypeList(type, false),
+				CollectionType.Enumerable => CreateDeserializeForTypeEnumerable(type, false),
+				CollectionType.Array => CreateDeserializeForTypeArray(type, false),
+			});
+
+			result.Add($"{type.TypeName}{type.CollectionType}Async", type.CollectionType switch
+			{
+				CollectionType.List => CreateDeserializeForTypeList(type, true),
+				CollectionType.Enumerable => CreateDeserializeForTypeEnumerable(type, true),
+				CollectionType.Array => CreateDeserializeForTypeArray(type, true),
 			});
 		}
-
 
 		foreach (var member in type?.Members ?? System.Linq.Enumerable.Empty<MemberModel>())
 		{
 			if (member.Type.CollectionType != CollectionType.None)
 			{
-				if (!result.ContainsKey($"{type.TypeName}{type.CollectionType}"))
+				if (!result.ContainsKey($"{member.Type.TypeName}{member.Type.CollectionType}"))
 				{
-					result.Add($"{member.Type.TypeName}{member.Type.CollectionType}", member.Type.CollectionType switch
+					result.Add($"{type.TypeName}{type.CollectionType}", member.Type.CollectionType switch
 					{
-						CollectionType.List => CreateDeserializeForTypeList(type),
-						CollectionType.Enumerable => CreateDeserializeForTypeEnumerable(type),
-						CollectionType.Array => CreateDeserializeForTypeArray(type),
+						CollectionType.List => CreateDeserializeForTypeList(type, false),
+						CollectionType.Enumerable => CreateDeserializeForTypeEnumerable(type, false),
+						CollectionType.Array => CreateDeserializeForTypeArray(type, false),
+					});
+
+					result.Add($"{member.Type.TypeName}{member.Type.CollectionType}Async", member.Type.CollectionType switch
+					{
+						CollectionType.List => CreateDeserializeForTypeList(type, true),
+						CollectionType.Enumerable => CreateDeserializeForTypeEnumerable(type, true),
+						CollectionType.Array => CreateDeserializeForTypeArray(type, true),
 					});
 				}
 			}
@@ -408,7 +441,7 @@ public class XmlParserSourceGenerator : IIncrementalGenerator
 		var members = type.Members.ToLookup(g => g.Attribute?.AttributeType);
 
 		builder.AppendLineWithoutIndent($"private static {async} Deserialize{type.TypeName}{asyncSuffix}(XmlReader reader, int depth)");
-		using (_ = builder.IndentBlock())
+		using (builder.IndentBlockNoNewline())
 		{
 			builder.AppendLine($"var result = new {type.TypeName}();");
 			builder.AppendLine();
@@ -445,12 +478,12 @@ public class XmlParserSourceGenerator : IIncrementalGenerator
 								{
 									using (builder.IndentBlock("if (!reader.IsEmptyElement)"))
 									{
-										builder.AppendLine($"result.{element.Name} = Deserialize{element.Type.TypeName}{element.Type.CollectionType}(reader.ReadSubtree(), 1);");
+										builder.AppendLine($"result.{element.Name} = {asyncKeyword}Deserialize{element.Type.TypeName}{element.Type.CollectionType}{asyncSuffix}(reader, depth + 1);");
 									}
 								}
 								else
 								{
-									builder.AppendLine($"result.{element.Name} = {asyncKeyword}Deserialize{element.Type.TypeName}{asyncSuffix}(reader.ReadSubtree(), depth + 1);");
+									builder.AppendLine($"result.{element.Name} = {asyncKeyword}Deserialize{element.Type.TypeName}{asyncSuffix}(reader.ReadSubtree(), 1);");
 								}
 							}
 							
@@ -473,19 +506,23 @@ public class XmlParserSourceGenerator : IIncrementalGenerator
 		return builder.ToString();
 	}
 
-	private string CreateDeserializeForTypeEnumerable(ItemModel? type)
+	private string CreateDeserializeForTypeEnumerable(ItemModel? type, bool isAsync)
 	{
 		if (type is null)
 		{
 			return String.Empty;
 		}
 
+		var async = isAsync ? $"async IAsyncEnumerable<{type.TypeName}>" : $"IEnumerable<{type.TypeName}>";
+		var asyncKeyword = isAsync ? "await " : String.Empty;
+		var asyncSuffix = isAsync ? "Async" : String.Empty;
+
 		var builder = new IndentedStringBuilder("\t", "\t");
 
-		builder.AppendLineWithoutIndent($"private static IEnumerable<{type.TypeName}> Deserialize{type.TypeName}Enumerable(XmlReader reader, int depth)");
+		builder.AppendLineWithoutIndent($"private static {async} Deserialize{type.TypeName}Enumerable{asyncSuffix}(XmlReader reader, int depth)");
 		using (builder.IndentBlockNoNewline())
 		{
-			using (builder.IndentBlock("while (reader.Read())"))
+			using (builder.IndentBlock($"while ({asyncKeyword}reader.Read{asyncSuffix}())"))
 			{
 				using (builder.IndentScope("if (reader.Depth != depth || !reader.IsStartElement())"))
 				{
@@ -495,7 +532,7 @@ public class XmlParserSourceGenerator : IIncrementalGenerator
 
 				using (builder.IndentBlock($"if (reader.Name == \"{type.RootName}\")"))
 				{
-					builder.AppendLine($"yield return Deserialize{type.TypeName}(reader.ReadSubtree(), 1);");
+					builder.AppendLine($"yield return {asyncKeyword}Deserialize{type.TypeName}{asyncSuffix}(reader.ReadSubtree(), 1);");
 				}
 			}
 		}
@@ -503,22 +540,26 @@ public class XmlParserSourceGenerator : IIncrementalGenerator
 		return builder.ToString();
 	}
 
-	private string CreateDeserializeForTypeArray(ItemModel? type)
+	private string CreateDeserializeForTypeArray(ItemModel? type, bool isAsync)
 	{
 		if (type is null)
 		{
 			return String.Empty;
 		}
 
+		var async = isAsync ? $"async Task<{type.TypeName}[]>" : $"{type.TypeName}[]";
+		var asyncKeyword = isAsync ? "await " : String.Empty;
+		var asyncSuffix = isAsync ? "Async" : String.Empty;
+
 		var builder = new IndentedStringBuilder("\t", "\t");
 
-		builder.AppendLineWithoutIndent($"private static {type.TypeName}[] Deserialize{type.TypeName}Array(XmlReader reader, int depth)");
+		builder.AppendLineWithoutIndent($"private static {async} Deserialize{type.TypeName}Array{asyncSuffix}(XmlReader reader, int depth)");
 		using (builder.IndentBlockNoNewline())
 		{
 			builder.AppendLine("var index = 0;");
 			builder.AppendLine($"var buffer = ArrayPool<{type.TypeName}>.Shared.Rent(4);");
 			builder.AppendLine();
-			using (builder.IndentBlock("while (reader.Read())"))
+			using (builder.IndentBlock($"while ({asyncKeyword}reader.Read{asyncSuffix}())"))
 			{
 				using (builder.IndentScope("if (reader.Depth != depth || !reader.IsStartElement())"))
 				{
@@ -537,7 +578,7 @@ public class XmlParserSourceGenerator : IIncrementalGenerator
 						builder.AppendLine("buffer = tempBuffer;");
 					}
 					builder.AppendLine();
-					builder.AppendLine($"buffer[index++] = Deserialize{type.TypeName}(reader.ReadSubtree(), 1);");
+					builder.AppendLine($"buffer[index++] = {asyncKeyword}Deserialize{type.TypeName}{asyncSuffix}(reader.ReadSubtree(), 1);");
 				}
 			}
 			builder.AppendLine();
@@ -551,21 +592,25 @@ public class XmlParserSourceGenerator : IIncrementalGenerator
 	}
 
 
-	private string CreateDeserializeForTypeList(ItemModel? type)
+	private string CreateDeserializeForTypeList(ItemModel? type, bool isAsync)
 	{
 		if (type is null)
 		{
 			return String.Empty;
 		}
 
+		var async = isAsync ? $"async Task<List<{type.TypeName}>>" : $"List<{type.TypeName}>";
+		var asyncKeyword = isAsync ? "await " : String.Empty;
+		var asyncSuffix = isAsync ? "Async" : String.Empty;
+
 		var builder = new IndentedStringBuilder("\t", "\t");
 
-		builder.AppendLineWithoutIndent($"private static List<{type.TypeName}> Deserialize{type.TypeName}List(XmlReader reader, int depth)");
+		builder.AppendLineWithoutIndent($"private static {async} Deserialize{type.TypeName}List{asyncSuffix}(XmlReader reader, int depth)");
 		using (builder.IndentBlockNoNewline())
 		{
 			builder.AppendLine($"var result = new List<{type.TypeName}>();");
 			builder.AppendLine();
-			using (builder.IndentBlock("while (reader.Read())"))
+			using (builder.IndentBlock($"while {asyncKeyword}reader.Read{asyncSuffix}())"))
 			{
 				using (builder.IndentScope("if (reader.Depth != depth || !reader.IsStartElement())"))
 				{
@@ -575,7 +620,7 @@ public class XmlParserSourceGenerator : IIncrementalGenerator
 
 				using (builder.IndentBlock($"if (reader.Name == \"{type.RootName}\")"))
 				{
-					builder.AppendLine($"result.Add(Deserialize{type.TypeName}(reader.ReadSubtree(), 1));");
+					builder.AppendLine($"result.Add({asyncKeyword}Deserialize{type.TypeName}{asyncSuffix}(reader, depth + 1));");
 				}
 			}
 			builder.AppendLine();
