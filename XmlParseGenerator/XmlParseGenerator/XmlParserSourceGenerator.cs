@@ -319,17 +319,16 @@ public class XmlParserSourceGenerator : IIncrementalGenerator
 
 				if (element.Type.CollectionType != CollectionType.None)
 				{
-					var suffix = String.Empty;
-
 					if (element.Type.IsClass)
 					{
-						suffix = $" ?? Enumerable.Empty<{element.Type.TypeName}>()";
+						builder.AppendLine($"if (item.{element.Name} != null)");
+						builder.AppendLine("{");
+						builder.Indent();
 					}
-
 					builder.AppendLine($"{asyncKeyword}writer.WriteStartElement{asyncSuffix}(null, \"{element.Attribute.Name ?? element.Type.TypeName}\", null);");
 					builder.AppendLine();
 
-					builder.AppendLine($"foreach (var element in item.{element.Name}{suffix})");
+					builder.AppendLine($"foreach (var element in item.{element.Name})");
 					builder.AppendLine("{");
 					builder.Indent();
 
@@ -372,10 +371,20 @@ public class XmlParserSourceGenerator : IIncrementalGenerator
 
 				if (element.Type.CollectionType != CollectionType.None)
 				{
+					if (element.Type.IsClass)
+					{
+						builder.Unindent();
+						builder.AppendLine("}");
+					}
+					builder.AppendLine();
+					builder.AppendLine($"{asyncKeyword}writer.WriteEndElement{asyncSuffix}();");
+
 					builder.Unindent();
 					builder.AppendLine("}");
 					builder.AppendLine();
 				}
+
+				
 			}
 
 			builder.AppendLine($"{asyncKeyword}writer.WriteEndElement{asyncSuffix}();");
@@ -528,7 +537,7 @@ public class XmlParserSourceGenerator : IIncrementalGenerator
 						builder.AppendLine("buffer = tempBuffer;");
 					}
 					builder.AppendLine();
-					builder.AppendLine($"buffer[index++] = Deserialize{type.TypeName}(reader, depth + 1);");
+					builder.AppendLine($"buffer[index++] = Deserialize{type.TypeName}(reader.ReadSubtree(), 1);");
 				}
 			}
 			builder.AppendLine();
@@ -567,7 +576,6 @@ public class XmlParserSourceGenerator : IIncrementalGenerator
 				using (builder.IndentBlock($"if (reader.Name == \"{type.RootName}\")"))
 				{
 					builder.AppendLine($"result.Add(Deserialize{type.TypeName}(reader.ReadSubtree(), 1));");
-					builder.AppendLine("reader.Read();");
 				}
 			}
 			builder.AppendLine();
