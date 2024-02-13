@@ -19,5 +19,5 @@ public class Test
 	public int Age { get; set; }
 
 	[XmlElement("children")]
-	public Test[] Children { get; set; }
+	public IEnumerable<Test> Children { get; set; }
 }

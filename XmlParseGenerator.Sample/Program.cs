@@ -36,7 +36,7 @@ public class Program
 
 		var result = await TestSerializer.SerializeAsync(model);
 
-		var resultObject = TestSerializer.Deserialize(result);
+		var resultObject = await TestSerializer.DeserializeAsync(result);
 
 		BenchmarkRunner.Run<TestClass>();
 	}
@@ -52,37 +52,37 @@ public class TestClass
 		Age = 26,
 		Children =
 		[
-			new Test()
+			new Test
 			{
 				FirstName = "Marry Nel",
 				LastName = "Kossen",
 				Age = 28,
 			},
-			new Test()
+			new Test
 			{
 				FirstName = "Marry Nel",
 				LastName = "Kossen",
 				Age = 28,
 			},
-			new Test()
+			new Test
 			{
 				FirstName = "Marry Nel",
 				LastName = "Kossen",
 				Age = 28,
 			},
-			new Test()
+			new Test
 			{
 				FirstName = "Marry Nel",
 				LastName = "Kossen",
 				Age = 28,
 			},
-			new Test()
+			new Test
 			{
 				FirstName = "Marry Nel",
 				LastName = "Kossen",
 				Age = 28,
 			},
-			new Test()
+			new Test
 			{
 				FirstName = "Marry Nel",
 				LastName = "Kossen",
@@ -108,7 +108,7 @@ public class TestClass
 		return _serializer.Deserialize(builder) as Test;
 	}
 
-	// [Benchmark]
+	[Benchmark]
 	public Test DefaultSlow()
 	{
 		var serializer = new XmlSerializer(typeof(Test));
