@@ -21,19 +21,35 @@ public partial class XmlParserSourceGenerator
 		builder.AppendLineWithoutIndent($"private static {async} Deserialize{type.TypeName}Enumerable{asyncSuffix}(XmlReader reader, int depth)");
 		using (builder.IndentBlockNoNewline())
 		{
+			builder.AppendLine("var index = 0;");
+			builder.AppendLine($"var buffer = ArrayPool<{type.TypeName}>.Shared.Rent(4);");
+			builder.AppendLine();
 			using (builder.IndentBlock($"while ({asyncKeyword}reader.Read{asyncSuffix}())"))
 			{
 				using (builder.IndentScope("if (reader.Depth != depth || !reader.IsStartElement())"))
 				{
 					builder.AppendLine("continue;");
 				}
+
 				builder.AppendLine();
 
 				using (builder.IndentBlock($"if (reader.Name == \"{type.RootName}\")"))
 				{
-					builder.AppendLine($"yield return {asyncKeyword}Deserialize{type.TypeName}{asyncSuffix}(reader, depth + 1);");
+					using (builder.IndentBlock("if ((uint)index == (uint)buffer.Length)"))
+					{
+						builder.AppendLine($"var tempBuffer = ArrayPool<{type.TypeName}>.Shared.Rent(buffer.Length * 2);");
+						builder.AppendLine("buffer.CopyTo(tempBuffer, 0);");
+						builder.AppendLine($"ArrayPool<{type.TypeName}>.Shared.Return(buffer);");
+						builder.AppendLine("buffer = tempBuffer;");
+					}
+
+					builder.AppendLine();
+					builder.AppendLine($"buffer[index++] = {asyncKeyword}Deserialize{type.TypeName}{asyncSuffix}(reader, depth + 1);");
 				}
 			}
+			
+			builder.AppendLine();
+			builder.AppendLine($"return new BufferEnumerable<{type.TypeName}>(buffer, index);");
 		}
 
 		return builder.ToString();
