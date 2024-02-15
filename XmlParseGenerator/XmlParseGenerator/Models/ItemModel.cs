@@ -14,6 +14,7 @@ public record ItemModel
 	public SpecialType SpecialType { get; set; }
 
 	public CollectionType CollectionType { get; set; }
+	public string CollectionName { get; set; }
 
 	public HashSet<string> Namespaces { get; set; } = new();
 	

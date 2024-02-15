@@ -9,7 +9,7 @@ namespace XmlParseGenerator;
 
 public partial class XmlParserSourceGenerator
 {
-		private void CreateDeserializeForType(Dictionary<string, string> result, ItemModel? type)
+	private void CreateDeserializeForType(Dictionary<string, string> result, ItemModel? type)
 	{
 		if (type is null || result.ContainsKey(type.TypeName) || type.SpecialType != SpecialType.None)
 		{
@@ -21,17 +21,15 @@ public partial class XmlParserSourceGenerator
 
 		if (type.CollectionType != CollectionType.None)
 		{
-			result.Add($"{type.TypeName}{type.CollectionType}", type.CollectionType switch
+			result.Add($"{type.TypeName}{type.CollectionName}", type.CollectionType switch
 			{
 				CollectionType.List => CreateDeserializeForTypeList(type, false),
-				CollectionType.Enumerable => CreateDeserializeForTypeEnumerable(type, false),
 				CollectionType.Array => CreateDeserializeForTypeArray(type, false),
 			});
 
-			result.Add($"{type.TypeName}{type.CollectionType}Async", type.CollectionType switch
+			result.Add($"{type.TypeName}{type.CollectionName}Async", type.CollectionType switch
 			{
 				CollectionType.List => CreateDeserializeForTypeList(type, true),
-				CollectionType.Enumerable => CreateDeserializeForTypeEnumerable(type, true),
 				CollectionType.Array => CreateDeserializeForTypeArray(type, true),
 			});
 		}
@@ -40,19 +38,17 @@ public partial class XmlParserSourceGenerator
 		{
 			if (member.Type.CollectionType != CollectionType.None)
 			{
-				if (!result.ContainsKey($"{member.Type.TypeName}{member.Type.CollectionType}"))
+				if (!result.ContainsKey($"{member.Type.TypeName}{member.Type.CollectionName}"))
 				{
-					result.Add($"{type.TypeName}{type.CollectionType}", member.Type.CollectionType switch
+					result.Add($"{member.Type.TypeName}{member.Type.CollectionName}", member.Type.CollectionType switch
 					{
 						CollectionType.List => CreateDeserializeForTypeList(type, false),
-						CollectionType.Enumerable => CreateDeserializeForTypeEnumerable(type, false),
 						CollectionType.Array => CreateDeserializeForTypeArray(type, false),
 					});
 
-					result.Add($"{member.Type.TypeName}{member.Type.CollectionType}Async", member.Type.CollectionType switch
+					result.Add($"{member.Type.TypeName}{member.Type.CollectionName}Async", member.Type.CollectionType switch
 					{
 						CollectionType.List => CreateDeserializeForTypeList(type, true),
-						CollectionType.Enumerable => CreateDeserializeForTypeEnumerable(type, true),
 						CollectionType.Array => CreateDeserializeForTypeArray(type, true),
 					});
 				}
@@ -63,7 +59,7 @@ public partial class XmlParserSourceGenerator
 			}
 		}
 	}
-	
+
 	private string CreateDeserializeForType(ItemModel? type, bool isAsync)
 	{
 		if (type is null)
@@ -116,7 +112,7 @@ public partial class XmlParserSourceGenerator
 								{
 									using (builder.IndentBlock("if (!reader.IsEmptyElement)"))
 									{
-										builder.AppendLine($"result.{element.Name} = {asyncKeyword}Deserialize{element.Type.TypeName}{element.Type.CollectionType}{asyncSuffix}(reader, depth + 1);");
+										builder.AppendLine($"result.{element.Name} = {asyncKeyword}Deserialize{element.Type.TypeName}{element.Type.CollectionName}{asyncSuffix}(reader, depth + 1);");
 									}
 								}
 								else
@@ -124,12 +120,12 @@ public partial class XmlParserSourceGenerator
 									builder.AppendLine($"result.{element.Name} = {asyncKeyword}Deserialize{element.Type.TypeName}{asyncSuffix}(reader, depth + 1);");
 								}
 							}
-							
+
 							builder.AppendLine($"{asyncKeyword}reader.Skip{asyncSuffix}();");
 							builder.AppendLine("break;");
 						}
 					}
-					
+
 					using (builder.IndentScope("default:"))
 					{
 						builder.AppendLine($"{asyncKeyword}reader.Skip{asyncSuffix}();");

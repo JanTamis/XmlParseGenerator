@@ -27,10 +27,11 @@ public partial class XmlParserSourceGenerator : IIncrementalGenerator
 		});
 
 		context.RegisterSourceOutput(temp, Generate);
-		
+
 		context.RegisterPostInitializationOutput(ctx => ctx.AddSource(
 			"BufferEnumerable.g.cs",
 			SourceText.From("""
+				using System;
 				using System.Buffers;
 				using System.Collections;
 				using System.Collections.Generic;
@@ -356,6 +357,7 @@ public partial class XmlParserSourceGenerator : IIncrementalGenerator
 			result.TypeName = arrayInfo.ElementType.Name;
 			result.RootNamespace = arrayInfo.ElementType.ContainingNamespace.ToDisplayString();
 			result.CollectionType = CollectionType.Array;
+			result.CollectionName = nameof(CollectionType.Array);
 			result.SpecialType = arrayInfo.ElementType.SpecialType;
 			result.IsClass = arrayInfo.ElementType.IsReferenceType;
 
@@ -363,40 +365,29 @@ public partial class XmlParserSourceGenerator : IIncrementalGenerator
 
 			result.Namespaces.Add(arrayInfo.ElementType.ContainingNamespace.ToDisplayString());
 		}
-		else switch (namedType.Name)
+		else if (namedType.TypeKind == TypeKind.Interface)
 		{
-			case "IEnumerable" when namedType is INamedTypeSymbol ienumerableType:
-			{
-				var type = ienumerableType.TypeArguments[0];
-				result.TypeName = type.Name;
-				result.RootNamespace = type.ContainingNamespace.ToDisplayString();
-				result.CollectionType = CollectionType.Enumerable;
-				result.SpecialType = type.SpecialType;
-				result.IsClass = type.IsReferenceType;
 
-				types.Add($"{result.TypeName}Enumerable", result);
+		}
+		else if (namedType is INamedTypeSymbol { TypeArguments.Length: 1 } listType && namedType.AllInterfaces.Any(a => a.Name == "IList" && a.ContainingNamespace.ToDisplayString() == "System.Collections.Generic"))
+		{
+			var type = listType.TypeArguments[0];
+			result.TypeName = type.Name;
+			result.CollectionName = listType.Name;
+			result.RootNamespace = type.ContainingNamespace.ToDisplayString();
+			result.CollectionType = CollectionType.List;
+			result.SpecialType = type.SpecialType;
+			result.IsClass = type.IsReferenceType;
 
-				result.Namespaces.Add(type.ContainingNamespace.ToDisplayString());
-				break;
-			}
+			result.Namespaces.Add(listType.ContainingNamespace.ToDisplayString());
+			result.Namespaces.Add(type.ContainingNamespace.ToDisplayString());
 
-			case "List" when namedType is INamedTypeSymbol listType:
-			{
-				var type = listType.TypeArguments[0];
-				result.TypeName = type.Name;
-				result.RootNamespace = type.ContainingNamespace.ToDisplayString();
-				result.CollectionType = CollectionType.List;
-				result.SpecialType = type.SpecialType;
-				result.IsClass = type.IsReferenceType;
-
-				types.Add($"{result.TypeName}List", result);
-				break;
-			}
-			
-			default:
-				types.Add($"{result.RootNamespace}.{result.TypeName}", result);
-				result.Namespaces.Add(namedType.ContainingNamespace.ToDisplayString());
-				break;
+			types.Add($"{result.TypeName}{result.CollectionName}", result);
+		}
+		else
+		{
+			types.Add($"{result.RootNamespace}.{result.TypeName}", result);
+			result.Namespaces.Add(namedType.ContainingNamespace.ToDisplayString());
 		}
 
 		foreach (var member in namedType.GetMembers())
@@ -496,19 +487,5 @@ public partial class XmlParserSourceGenerator : IIncrementalGenerator
 			SpecialType.System_DateTime and not
 			SpecialType.System_Enum and not
 			SpecialType.System_UInt64;
-	}
-
-	private bool IsCollectionType(ITypeSymbol type)
-	{
-		return type.SpecialType is SpecialType.System_Array or
-			SpecialType.System_Collections_Generic_IEnumerable_T or
-			SpecialType.System_Collections_Generic_IList_T or
-			SpecialType.System_Collections_Generic_IReadOnlyCollection_T or
-			SpecialType.System_Collections_Generic_ICollection_T || type is IArrayTypeSymbol;
-	}
-
-	private bool HasEnumerable(ItemModel model)
-	{
-		return model.CollectionType == CollectionType.Enumerable || model.Members.Any(a => HasEnumerable(a.Type));
 	}
 }
