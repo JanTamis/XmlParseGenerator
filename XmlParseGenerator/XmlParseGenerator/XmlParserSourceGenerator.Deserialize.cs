@@ -23,13 +23,13 @@ public partial class XmlParserSourceGenerator
 		{
 			result.Add($"{type.TypeName}{type.CollectionName}", type.CollectionType switch
 			{
-				CollectionType.List => CreateDeserializeForTypeList(type, false),
+				CollectionType.Collection => CreateDeserializeForTypeCollection(type, false),
 				CollectionType.Array => CreateDeserializeForTypeArray(type, false),
 			});
 
 			result.Add($"{type.TypeName}{type.CollectionName}Async", type.CollectionType switch
 			{
-				CollectionType.List => CreateDeserializeForTypeList(type, true),
+				CollectionType.Collection => CreateDeserializeForTypeCollection(type, true),
 				CollectionType.Array => CreateDeserializeForTypeArray(type, true),
 			});
 		}
@@ -42,14 +42,14 @@ public partial class XmlParserSourceGenerator
 				{
 					result.Add($"{member.Type.TypeName}{member.Type.CollectionName}", member.Type.CollectionType switch
 					{
-						CollectionType.List => CreateDeserializeForTypeList(type, false),
-						CollectionType.Array => CreateDeserializeForTypeArray(type, false),
+						CollectionType.Collection => CreateDeserializeForTypeCollection(member.Type, false),
+						CollectionType.Array => CreateDeserializeForTypeArray(member.Type, false),
 					});
 
 					result.Add($"{member.Type.TypeName}{member.Type.CollectionName}Async", member.Type.CollectionType switch
 					{
-						CollectionType.List => CreateDeserializeForTypeList(type, true),
-						CollectionType.Array => CreateDeserializeForTypeArray(type, true),
+						CollectionType.Collection => CreateDeserializeForTypeCollection(member.Type, true),
+						CollectionType.Array => CreateDeserializeForTypeArray(member.Type, true),
 					});
 				}
 			}

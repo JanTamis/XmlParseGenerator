@@ -46,7 +46,7 @@ public partial class XmlParserSourceGenerator
 	}
 
 
-	private string CreateDeserializeForTypeList(ItemModel? type, bool isAsync)
+	private string CreateDeserializeForTypeCollection(ItemModel? type, bool isAsync)
 	{
 		if (type is null)
 		{
@@ -60,24 +60,6 @@ public partial class XmlParserSourceGenerator
 				? $"async Task<{type.CollectionName}<{type.TypeName}>>" 
 				: $"{type.CollectionName}<{type.TypeName}>",
 			initialize: (builder) => builder.AppendLine($"var result = new {type.CollectionName}<{type.TypeName}>();"),
-			body: (builder) => builder.AppendLine($"result.Add({asyncKeyword}Deserialize{type.TypeName}{asyncSuffix}(reader, depth + 1));"),
-			returnStatement: (builder) => builder.AppendLine("return result;"));
-	}
-
-	private string CreateDeserializeForTypeHashSet(ItemModel? type, bool isAsync)
-	{
-		if (type is null)
-		{
-			return String.Empty;
-		}
-
-		var asyncKeyword = isAsync ? "await " : String.Empty;
-		var asyncSuffix = isAsync ? "Async" : String.Empty;
-
-		return CreateCollection(type, isAsync, isAsync
-				? $"async Task<HashSet<{type.TypeName}>>"
-				: $"HashSet<{type.TypeName}>",
-			initialize: (builder) => builder.AppendLine($"var result = new List<{type.TypeName}>();"),
 			body: (builder) => builder.AppendLine($"result.Add({asyncKeyword}Deserialize{type.TypeName}{asyncSuffix}(reader, depth + 1));"),
 			returnStatement: (builder) => builder.AppendLine("return result;"));
 	}

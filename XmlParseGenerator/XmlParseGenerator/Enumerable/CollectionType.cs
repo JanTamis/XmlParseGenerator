@@ -4,6 +4,6 @@ public enum CollectionType
 {
 	None,
 	Array,
-	List,
+	Collection,
 	HashSet,
 }

@@ -369,15 +369,19 @@ public partial class XmlParserSourceGenerator : IIncrementalGenerator
 		{
 
 		}
-		else if (namedType is INamedTypeSymbol { TypeArguments.Length: 1 } listType && namedType.AllInterfaces.Any(a => a.Name == "IList" && a.ContainingNamespace.ToDisplayString() == "System.Collections.Generic"))
+		else if (namedType is INamedTypeSymbol { TypeArguments.Length: 1 } listType && namedType.AllInterfaces.Any(a => a.Name == "ICollection" && a.ContainingNamespace.ToDisplayString() == "System.Collections.Generic"))
 		{
 			var type = listType.TypeArguments[0];
 			result.TypeName = type.Name;
 			result.CollectionName = listType.Name;
 			result.RootNamespace = type.ContainingNamespace.ToDisplayString();
-			result.CollectionType = CollectionType.List;
+			result.CollectionType = CollectionType.Collection;
 			result.SpecialType = type.SpecialType;
 			result.IsClass = type.IsReferenceType;
+			result.RootName = type.GetAttributes()
+				.Where(w => w.AttributeClass?.ToDisplayString() == "System.Xml.Serialization.XmlRootAttribute")
+				.Select(s => s.ConstructorArguments[0].Value?.ToString())
+				.FirstOrDefault() ?? type.Name;
 
 			result.Namespaces.Add(listType.ContainingNamespace.ToDisplayString());
 			result.Namespaces.Add(type.ContainingNamespace.ToDisplayString());
