@@ -11,7 +11,7 @@ public partial class XmlParserSourceGenerator
 {
 	private void CreateSerializeForType(Dictionary<string, string> result, ItemModel? type)
 	{
-		if (type is null || result.ContainsKey(type.TypeName) || !IsValidType(type.SpecialType))
+		if (type is null || result.ContainsKey(type.TypeName) || !IsValidType(type.SpecialType) || type.CollectionType != CollectionType.None)
 		{
 			return;
 		}
@@ -39,34 +39,44 @@ public partial class XmlParserSourceGenerator
 		var asyncKeyword = isAsync ? "await " : String.Empty;
 		var asyncSuffix = isAsync ? "Async" : String.Empty;
 
+		var rootName = type.Attributes.TryGetValue(AttributeType.Root, out var rootAttribute) && rootAttribute.ConstructorArguments.Count > 0
+			? rootAttribute.ConstructorArguments[0].Value.ToString()
+			: type.TypeName;
+
 		var builder = new IndentedStringBuilder("\t", "\t");
-		var members = type.Members.ToLookup(g => g.Attribute?.AttributeType);
 
 		builder.AppendLineWithoutIndent($"private static {async} Serialize{type.TypeName}{asyncSuffix}(XmlWriter writer, {type.TypeName} item)");
 		using (_ = builder.IndentBlock())
 		{
-			builder.AppendLine($"{asyncKeyword}writer.WriteStartElement{asyncSuffix}(null, \"{type.RootName ?? type.TypeName}\", null);");
+			builder.AppendLine($"{asyncKeyword}writer.WriteStartElement{asyncSuffix}(null, \"{rootName}\", null);");
 			builder.AppendLine();
+			
+			// foreach (var attribute in members[AttributeType.Attribute])
+			// {
+			// 	if (type.IsClass)
+			// 	{
+			// 		builder.AppendLine($"{asyncKeyword}writer.WriteAttributeString{asyncSuffix}(null, \"{attribute.Attribute.Name ?? attribute.Name}\", null, item.{attribute.Name}?.ToString());");
+			// 	}
+			// 	else
+			// 	{
+			// 		builder.AppendLine($"{asyncKeyword}writer.WriteAttributeString{asyncSuffix}(null, \"{attribute.Attribute.Name ?? attribute.Name}\", null, item.{attribute.Name}.ToString());");
+			// 	}
+			// }
+			//
+			// if (members[AttributeType.Attribute].Any())
+			// {
+			// 	builder.AppendLine();
+			// }
 
-			foreach (var attribute in members[AttributeType.Attribute])
+			foreach (var element in type.Members)
 			{
-				if (type.IsClass)
+				var name = element.Type.TypeName;
+				
+				if (element.Attributes.TryGetValue(AttributeType.Element, out var elementAttribute) && elementAttribute.ConstructorArguments.Count > 0)
 				{
-					builder.AppendLine($"{asyncKeyword}writer.WriteAttributeString{asyncSuffix}(null, \"{attribute.Attribute.Name ?? attribute.Name}\", null, item.{attribute.Name}?.ToString());");
+					name = elementAttribute.ConstructorArguments[0].Value.ToString();
 				}
-				else
-				{
-					builder.AppendLine($"{asyncKeyword}writer.WriteAttributeString{asyncSuffix}(null, \"{attribute.Attribute.Name ?? attribute.Name}\", null, item.{attribute.Name}.ToString());");
-				}
-			}
-
-			if (members[AttributeType.Attribute].Any())
-			{
-				builder.AppendLine();
-			}
-
-			foreach (var element in members[AttributeType.Element])
-			{
+				
 				var elementName = "item";
 				var classCheck = $"{elementName}.{element.Name}";
 
@@ -78,7 +88,7 @@ public partial class XmlParserSourceGenerator
 						builder.AppendLine("{");
 						builder.Indent();
 					}
-					builder.AppendLine($"{asyncKeyword}writer.WriteStartElement{asyncSuffix}(null, \"{element.Attribute.Name ?? element.Type.TypeName}\", null);");
+					builder.AppendLine($"{asyncKeyword}writer.WriteStartElement{asyncSuffix}(null, \"{name}\", null);");
 					builder.AppendLine();
 
 					builder.AppendLine($"foreach (var element in item.{element.Name})");
@@ -94,11 +104,13 @@ public partial class XmlParserSourceGenerator
 					if (element.Type.IsClass)
 					{
 						builder.AppendLine($"if ({classCheck} != null)");
+						
+						var tempType = element.Type.CollectionItemType ?? element.Type; 
+						
 						using (_ = builder.IndentBlock())
 						{
-							builder.AppendLine($"{asyncKeyword}Serialize{element.Type.TypeName}{asyncSuffix}(writer, {classCheck});");
+							builder.AppendLine($"{asyncKeyword}Serialize{tempType.TypeName}{asyncSuffix}(writer, {classCheck});");
 						}
-
 					}
 					else
 					{
@@ -107,7 +119,7 @@ public partial class XmlParserSourceGenerator
 				}
 				else
 				{
-					builder.AppendLine($"{asyncKeyword}writer.WriteStartElement{asyncSuffix}(null, \"{element.Attribute.Name ?? element.Name}\", null);");
+					builder.AppendLine($"{asyncKeyword}writer.WriteStartElement{asyncSuffix}(null, \"{name}\", null);");
 
 					if (element.Type.SpecialType == SpecialType.System_String)
 					{

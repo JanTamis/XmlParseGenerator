@@ -3,6 +3,7 @@ using System.Threading.Tasks;
 using System.Xml.Serialization;
 using BenchmarkDotNet.Attributes;
 using BenchmarkDotNet.Running;
+using Microsoft.Diagnostics.Tracing.Parsers.MicrosoftWindowsTCPIP;
 using XmlParseGenerator.Sample;
 
 public class Program
@@ -98,25 +99,29 @@ public class TestClass
 	}
 
 	[Benchmark(Baseline = true)]
-	public Test Default()
+	public string Default()
 	{
-		using var builder = new StringReader(_toDeserialize);
+		using var builder = new StringWriter();
 
-		return _serializer.Deserialize(builder) as Test;
+		_serializer.Serialize(builder, _test);
+
+		return builder.ToString();
 	}
 
 	[Benchmark]
-	public Test DefaultSlow()
+	public string DefaultSlow()
 	{
 		var serializer = new XmlSerializer(typeof(Test));
-		using var builder = new StringReader(_toDeserialize);
+		using var builder = new StringWriter();
 
-		return serializer.Deserialize(builder) as Test;
+		serializer.Serialize(builder, _test);
+
+		return builder.ToString();
 	}
 
 	[Benchmark]
-	public Test Generator()
+	public string Generator()
 	{
-		return TestSerializer.Deserialize(_toDeserialize);
+		return TestSerializer.Serialize(_test);
 	}
 }

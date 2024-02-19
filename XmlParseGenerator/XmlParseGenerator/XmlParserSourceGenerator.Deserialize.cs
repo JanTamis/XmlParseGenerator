@@ -72,7 +72,6 @@ public partial class XmlParserSourceGenerator
 		var asyncSuffix = isAsync ? "Async" : String.Empty;
 
 		var builder = new IndentedStringBuilder("\t", "\t");
-		var members = type.Members.ToLookup(g => g.Attribute?.AttributeType);
 
 		builder.AppendLineWithoutIndent($"private static {async} Deserialize{type.TypeName}{asyncSuffix}(XmlReader reader, int depth)");
 		using (builder.IndentBlockNoNewline())
@@ -89,9 +88,16 @@ public partial class XmlParserSourceGenerator
 				builder.AppendLine();
 				using (builder.IndentBlock("switch (reader.Name)"))
 				{
-					foreach (var element in members[AttributeType.Element])
+					foreach (var element in type.Members)
 					{
-						using (builder.IndentScope($"case \"{element.Attribute.Name}\":"))
+						var name = element.Name;
+
+						if (element.Attributes.TryGetValue(AttributeType.Element, out var attribute))
+						{
+							name = attribute.ConstructorArguments[0].Value.ToString();
+						}
+						
+						using (builder.IndentScope($"case \"{name}\":"))
 						{
 							if (!IsValidType(element.Type.SpecialType))
 							{

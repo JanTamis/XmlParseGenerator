@@ -7,7 +7,7 @@ namespace XmlParseGenerator.Sample;
 
 [Serializable]
 [XmlRoot("person")]
-public class Test : IEquatable<Test>
+public class Test
 {
 	[XmlElement("firstName")]
 	public string FirstName { get; set; }
@@ -19,15 +19,5 @@ public class Test : IEquatable<Test>
 	public int Age { get; set; }
 
 	[XmlElement("children")]
-	public HashSet<Test> Children { get; set; }
-
-	public bool Equals(Test? other)
-	{
-		if (other is null)
-			return false;
-
-		return this.FirstName == other.FirstName && 
-			this.LastName == other.LastName && 
-			this.Age == other.Age;
-	}
+	public List<Test> Children { get; set; }
 }

@@ -106,6 +106,10 @@ public partial class XmlParserSourceGenerator : IIncrementalGenerator
 		CreateSerializeForType(serializerTypes, type);
 		CreateDeserializeForType(deserializerTypes, type);
 
+		var rootName = type.Attributes.TryGetValue(AttributeType.Root, out var rootAttribute) && rootAttribute.ConstructorArguments.Count > 0
+			? rootAttribute.ConstructorArguments[0].Value.ToString()
+			: type.TypeName;
+
 		var code = $$""""
 			using System.Collections.Generic;
 			using System.Buffers;
@@ -281,7 +285,7 @@ public partial class XmlParserSourceGenerator : IIncrementalGenerator
 							continue;
 				    }
 				    
-				    if (reader.Name == "{{type.RootName ?? type.TypeName}}")
+				    if (reader.Name == "{{rootName}}")
 				    {
 				      return Deserialize{{type.TypeName}}(reader, 1);
 				    }
@@ -301,7 +305,7 @@ public partial class XmlParserSourceGenerator : IIncrementalGenerator
 							continue;
 				    }
 				    
-				    if (reader.Name == "{{type.RootName ?? type.TypeName}}")
+				    if (reader.Name == "{{rootName}}")
 				    {
 				      return await Deserialize{{type.TypeName}}Async(reader, 1);
 				    }
@@ -343,13 +347,10 @@ public partial class XmlParserSourceGenerator : IIncrementalGenerator
 		result = new ItemModel
 		{
 			TypeName = namedType.Name,
-			RootName = namedType.GetAttributes()
-				.Where(w => w.AttributeClass?.ToDisplayString() == "System.Xml.Serialization.XmlRootAttribute")
-				.Select(s => s.ConstructorArguments[0].Value?.ToString())
-				.FirstOrDefault(),
 			RootNamespace = namedType.ContainingNamespace?.ToDisplayString() ?? String.Empty,
 			IsClass = namedType.IsReferenceType,
 			SpecialType = namedType.SpecialType,
+			Attributes = GetAtributes(namedType),
 		};
 
 		if (namedType is IArrayTypeSymbol arrayInfo)
@@ -372,17 +373,13 @@ public partial class XmlParserSourceGenerator : IIncrementalGenerator
 		else if (namedType is INamedTypeSymbol { TypeArguments.Length: 1 } listType && namedType.AllInterfaces.Any(a => a.Name == "ICollection" && a.ContainingNamespace.ToDisplayString() == "System.Collections.Generic"))
 		{
 			var type = listType.TypeArguments[0];
-			result.TypeName = type.Name;
 			result.CollectionName = listType.Name;
 			result.RootNamespace = type.ContainingNamespace.ToDisplayString();
 			result.CollectionType = CollectionType.Collection;
 			result.SpecialType = type.SpecialType;
 			result.IsClass = type.IsReferenceType;
-			result.RootName = type.GetAttributes()
-				.Where(w => w.AttributeClass?.ToDisplayString() == "System.Xml.Serialization.XmlRootAttribute")
-				.Select(s => s.ConstructorArguments[0].Value?.ToString())
-				.FirstOrDefault() ?? type.Name;
-
+			result.CollectionItemType = FillItemModel(type, types);
+			
 			result.Namespaces.Add(listType.ContainingNamespace.ToDisplayString());
 			result.Namespaces.Add(type.ContainingNamespace.ToDisplayString());
 
@@ -430,41 +427,7 @@ public partial class XmlParserSourceGenerator : IIncrementalGenerator
 
 			if (memberModel is not null)
 			{
-				var attributes = member.GetAttributes();
-
-				foreach (var attribute in attributes)
-				{
-					var fullName = attribute.AttributeClass?.ToDisplayString();
-
-					memberModel.Attribute = fullName switch
-					{
-						"System.Xml.Serialization.XmlElementAttribute" => new AttributeModel
-						{
-							Name = attribute.NamedArguments
-								.Where(w => w.Key == "ElementName")
-								.Select(s => s.Value.Value?.ToString())
-								.DefaultIfEmpty(attribute.ConstructorArguments[0].Value?.ToString())
-								.FirstOrDefault(),
-							AttributeType = AttributeType.Element
-						},
-						"System.Xml.Serialization.XmlAttributeAttribute" => new AttributeModel
-						{
-							Name = attribute.NamedArguments
-								.Where(w => w.Key == "attributeName")
-								.Select(s => s.Value.Value?.ToString())
-								.DefaultIfEmpty(attribute.ConstructorArguments[0].Value?.ToString())
-								.FirstOrDefault(),
-							AttributeType = AttributeType.Attribute
-						},
-						_ => null,
-					};
-				}
-
-				memberModel.Attribute ??= new AttributeModel
-				{
-					Name = memberModel.Name,
-					AttributeType = AttributeType.Element
-				};
+				memberModel.Attributes = GetAtributes(member);
 
 				result.Members.Add(memberModel);
 			}
@@ -491,5 +454,50 @@ public partial class XmlParserSourceGenerator : IIncrementalGenerator
 			SpecialType.System_DateTime and not
 			SpecialType.System_Enum and not
 			SpecialType.System_UInt64;
+	}
+
+	private Dictionary<AttributeType, AttributeModel> GetAtributes(ISymbol type)
+	{
+		var result = new Dictionary<AttributeType, AttributeModel>();
+		
+		foreach (var attribute in type.GetAttributes())
+		{
+			var fullName = attribute.AttributeClass?.ToDisplayString();
+
+			var attributeType = fullName switch
+			{
+				"System.Xml.Serialization.XmlRootAttribute"      => AttributeType.Root,
+				"System.Xml.Serialization.XmlTypeAttribute"      => AttributeType.Type,
+				"System.Xml.Serialization.XmlElementAttribute"   => AttributeType.Element,
+				"System.Xml.Serialization.XmlAttributeAttribute" => AttributeType.Attribute,
+				"System.Xml.Serialization.XmlArrayAttribute"     => AttributeType.Array,
+				"System.Xml.Serialization.XmlArrayItemAttribute" => AttributeType.ArrayItem,
+				"System.Xml.Serialization.XmlEnumAttribute"      => AttributeType.Enum,
+				"System.Xml.Serialization.XmlTextAttribute"      => AttributeType.Text,
+				"System.Xml.Serialization.XmlIgnoreAttribute"    => AttributeType.Ignore,
+				_                                                => AttributeType.None,
+			};
+
+			if (attributeType == AttributeType.None)
+			{
+				continue;
+			}
+
+			var tempAttribute = new AttributeModel();
+
+			foreach (var attributeNamedArgument in attribute.NamedArguments)
+			{
+				tempAttribute.NamedParameters.Add(attributeNamedArgument.Key, attributeNamedArgument.Value);
+			}
+
+			foreach (var constructorArgument in attribute.ConstructorArguments)
+			{
+				tempAttribute.ConstructorArguments.Add(constructorArgument);
+			}
+			
+			result.Add(attributeType, tempAttribute);
+		}
+
+		return result;
 	}
 }
