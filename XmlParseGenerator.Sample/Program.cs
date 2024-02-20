@@ -3,7 +3,6 @@ using System.Threading.Tasks;
 using System.Xml.Serialization;
 using BenchmarkDotNet.Attributes;
 using BenchmarkDotNet.Running;
-using Microsoft.Diagnostics.Tracing.Parsers.MicrosoftWindowsTCPIP;
 using XmlParseGenerator.Sample;
 
 public class Program
@@ -17,13 +16,13 @@ public class Program
 			Age = 26,
 			Children =
 			[
-				new Test()
+				new Test
 				{
 					FirstName = "Marry Nel",
 					LastName = "Kossen",
 					Age = 28,
 				},
-				new Test()
+				new Test
 				{
 					FirstName = "Marry Nel",
 					LastName = "Kossen",

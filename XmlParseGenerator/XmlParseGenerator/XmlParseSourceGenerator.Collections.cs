@@ -23,24 +23,24 @@ public partial class XmlParserSourceGenerator
 			initialize: (builder) =>
 			{
 				builder.AppendLine("var index = 0;");
-				builder.AppendLine($"var buffer = ArrayPool<{type.TypeName}>.Shared.Rent(4);");
+				builder.AppendLine($"var buffer = ArrayPool<{type.CollectionItemType.TypeName}>.Shared.Rent(4);");
 			},
 			body: (builder) =>
 			{
 				using (builder.IndentBlock("if ((uint)index == (uint)buffer.Length)"))
 				{
-					builder.AppendLine($"var tempBuffer = ArrayPool<{type.TypeName}>.Shared.Rent(buffer.Length * 2);");
+					builder.AppendLine($"var tempBuffer = ArrayPool<{type.CollectionItemType.TypeName}>.Shared.Rent(buffer.Length * 2);");
 					builder.AppendLine("buffer.CopyTo(tempBuffer, 0);");
-					builder.AppendLine($"ArrayPool<{type.TypeName}>.Shared.Return(buffer);");
+					builder.AppendLine($"ArrayPool<{type.CollectionItemType.TypeName}>.Shared.Return(buffer);");
 					builder.AppendLine("buffer = tempBuffer;");
 				}
 				builder.AppendLine();
-				builder.AppendLine($"buffer[index++] = {asyncKeyword}Deserialize{type.TypeName}{asyncSuffix}(reader, depth + 1);");
+				builder.AppendLine($"buffer[index++] = {asyncKeyword}Deserialize{type.CollectionItemType.TypeName}{asyncSuffix}(reader, depth + 1);");
 			},
 			returnStatement: (builder) =>
 			{
 				builder.AppendLine("var result = buffer[..index];");
-				builder.AppendLine($"ArrayPool<{type.TypeName}>.Shared.Return(buffer);");
+				builder.AppendLine($"ArrayPool<{type.CollectionItemType.TypeName}>.Shared.Return(buffer);");
 				builder.AppendLine();
 				builder.AppendLine("return result;");
 			});
@@ -58,10 +58,10 @@ public partial class XmlParserSourceGenerator
 		var asyncSuffix = isAsync ? "Async" : String.Empty;
 
 		return CreateCollection(type, isAsync, isAsync 
-				? $"async Task<{type.CollectionName}<{type.TypeName}>>" 
-				: $"{type.CollectionName}<{type.TypeName}>",
-			initialize: (builder) => builder.AppendLine($"var result = new {type.CollectionName}<{type.TypeName}>();"),
-			body: (builder) => builder.AppendLine($"result.Add({asyncKeyword}Deserialize{type.TypeName}{asyncSuffix}(reader, depth + 1));"),
+				? $"async Task<{type.CollectionName}<{type.CollectionItemType.TypeName}>>" 
+				: $"{type.CollectionName}<{type.CollectionItemType.TypeName}>",
+			initialize: (builder) => builder.AppendLine($"var result = new {type.CollectionName}<{type.CollectionItemType.TypeName}>();"),
+			body: (builder) => builder.AppendLine($"result.Add({asyncKeyword}Deserialize{type.CollectionItemType.TypeName}{asyncSuffix}(reader, depth + 1));"),
 			returnStatement: (builder) => builder.AppendLine("return result;"));
 	}
 
@@ -76,7 +76,7 @@ public partial class XmlParserSourceGenerator
 
 		var builder = new IndentedStringBuilder("\t", "\t");
 
-		builder.AppendLineWithoutIndent($"private static {resultType} Deserialize{type.TypeName}{type.CollectionName}{asyncSuffix}(XmlReader reader, int depth)");
+		builder.AppendLineWithoutIndent($"private static {resultType} Deserialize{type.CollectionItemType.TypeName}{type.TypeName}{asyncSuffix}(XmlReader reader, int depth)");
 		using (builder.IndentBlockNoNewline())
 		{
 			initialize(builder);

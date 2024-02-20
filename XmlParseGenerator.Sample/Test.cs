@@ -15,7 +15,7 @@ public class Test
 	[XmlElement("lastName")]
 	public string LastName { get; set; }
 	
-	[XmlElement("age")]
+	[XmlAttribute("age")]
 	public int Age { get; set; }
 
 	[XmlElement("children")]

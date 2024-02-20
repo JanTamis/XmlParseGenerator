@@ -51,25 +51,34 @@ public partial class XmlParserSourceGenerator
 			builder.AppendLine($"{asyncKeyword}writer.WriteStartElement{asyncSuffix}(null, \"{rootName}\", null);");
 			builder.AppendLine();
 			
-			// foreach (var attribute in members[AttributeType.Attribute])
-			// {
-			// 	if (type.IsClass)
-			// 	{
-			// 		builder.AppendLine($"{asyncKeyword}writer.WriteAttributeString{asyncSuffix}(null, \"{attribute.Attribute.Name ?? attribute.Name}\", null, item.{attribute.Name}?.ToString());");
-			// 	}
-			// 	else
-			// 	{
-			// 		builder.AppendLine($"{asyncKeyword}writer.WriteAttributeString{asyncSuffix}(null, \"{attribute.Attribute.Name ?? attribute.Name}\", null, item.{attribute.Name}.ToString());");
-			// 	}
-			// }
-			//
-			// if (members[AttributeType.Attribute].Any())
-			// {
-			// 	builder.AppendLine();
-			// }
+			foreach (var attribute in type.Members.Where(w => w.Attributes.ContainsKey(AttributeType.Attribute)))
+			{
+				var value = attribute.Attributes.TryGetValue(AttributeType.Attribute, out var attributeModel) && attributeModel.ConstructorArguments.Count > 0
+					? attributeModel.ConstructorArguments[0].Value.ToString()
+					: attribute.Name;
+				
+				if (attribute.Type.IsClass)
+				{
+					builder.AppendLine($"{asyncKeyword}writer.WriteAttributeString{asyncSuffix}(null, \"{value}\", null, item.{attribute.Name}?.ToString());");
+				}
+				else
+				{
+					builder.AppendLine($"{asyncKeyword}writer.WriteAttributeString{asyncSuffix}(null, \"{value}\", null, item.{attribute.Name}.ToString());");
+				}
+			}
+			
+			if (type.Members.Any(a => a.Attributes.ContainsKey(AttributeType.Attribute)))
+			{
+				builder.AppendLine();
+			}
 
 			foreach (var element in type.Members)
 			{
+				if (element.Attributes.ContainsKey(AttributeType.Attribute))
+				{
+					continue;
+				}
+				
 				var name = element.Type.TypeName;
 				
 				if (element.Attributes.TryGetValue(AttributeType.Element, out var elementAttribute) && elementAttribute.ConstructorArguments.Count > 0)

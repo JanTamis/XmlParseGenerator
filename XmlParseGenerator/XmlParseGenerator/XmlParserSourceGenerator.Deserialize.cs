@@ -24,13 +24,13 @@ public partial class XmlParserSourceGenerator
 			result.Add($"{type.TypeName}{type.CollectionName}", type.CollectionType switch
 			{
 				CollectionType.Collection => CreateDeserializeForTypeCollection(type, false),
-				CollectionType.Array => CreateDeserializeForTypeArray(type, false),
+				CollectionType.Array      => CreateDeserializeForTypeArray(type, false),
 			});
 
 			result.Add($"{type.TypeName}{type.CollectionName}Async", type.CollectionType switch
 			{
 				CollectionType.Collection => CreateDeserializeForTypeCollection(type, true),
-				CollectionType.Array => CreateDeserializeForTypeArray(type, true),
+				CollectionType.Array      => CreateDeserializeForTypeArray(type, true),
 			});
 		}
 
@@ -43,13 +43,13 @@ public partial class XmlParserSourceGenerator
 					result.Add($"{member.Type.TypeName}{member.Type.CollectionName}", member.Type.CollectionType switch
 					{
 						CollectionType.Collection => CreateDeserializeForTypeCollection(member.Type, false),
-						CollectionType.Array => CreateDeserializeForTypeArray(member.Type, false),
+						CollectionType.Array      => CreateDeserializeForTypeArray(member.Type, false),
 					});
 
 					result.Add($"{member.Type.TypeName}{member.Type.CollectionName}Async", member.Type.CollectionType switch
 					{
 						CollectionType.Collection => CreateDeserializeForTypeCollection(member.Type, true),
-						CollectionType.Array => CreateDeserializeForTypeArray(member.Type, true),
+						CollectionType.Array      => CreateDeserializeForTypeArray(member.Type, true),
 					});
 				}
 			}
@@ -78,9 +78,44 @@ public partial class XmlParserSourceGenerator
 		{
 			builder.AppendLine($"var result = new {type.TypeName}();");
 			builder.AppendLine();
+
+
+			if (type.Members.Any(a => a.Attributes.ContainsKey(AttributeType.Attribute)))
+			{
+				using (builder.IndentBlock("if (reader.HasAttributes)"))
+				{
+					using (builder.IndentBlock("while (reader.MoveToNextAttribute())"))
+					{
+						using (builder.IndentBlock("switch (reader.Name)"))
+						{
+							foreach (var member in type.Members)
+							{
+								if (member.Attributes.TryGetValue(AttributeType.Attribute, out var attributeModel))
+								{
+									using (builder.IndentScope($"case \"{attributeModel.ConstructorArguments[0].Value}\":"))
+									{
+										if (member.Type.SpecialType == SpecialType.System_String)
+										{
+											builder.AppendLine($"result.{member.Name} = reader.Value;");
+										}
+										else
+										{
+											builder.AppendLine($"result.{member.Name} = XmlConvert.To{member.Type.TypeName}(reader.Value);");
+										}
+										builder.AppendLine("break;");
+									}
+								}
+							}
+						}
+					}
+				}
+
+				builder.AppendLine();
+			}
+
 			using (builder.IndentBlock($"while ({asyncKeyword}reader.Read{asyncSuffix}())"))
 			{
-				using (builder.IndentScope("if (reader.Depth != depth || !reader.IsStartElement())"))
+				using (builder.IndentScope("if (reader.Depth != depth || !reader.IsStartElement() || reader.IsEmptyElement)"))
 				{
 					builder.AppendLine("break;");
 				}
@@ -88,7 +123,7 @@ public partial class XmlParserSourceGenerator
 				builder.AppendLine();
 				using (builder.IndentBlock("switch (reader.Name)"))
 				{
-					foreach (var element in type.Members)
+					foreach (var element in type.Members.Where(w => !w.Attributes.ContainsKey(AttributeType.Attribute)))
 					{
 						var name = element.Name;
 
@@ -96,7 +131,7 @@ public partial class XmlParserSourceGenerator
 						{
 							name = attribute.ConstructorArguments[0].Value.ToString();
 						}
-						
+
 						using (builder.IndentScope($"case \"{name}\":"))
 						{
 							if (!IsValidType(element.Type.SpecialType))
@@ -116,10 +151,7 @@ public partial class XmlParserSourceGenerator
 							{
 								if (element.Type.CollectionType != CollectionType.None)
 								{
-									using (builder.IndentBlock("if (!reader.IsEmptyElement)"))
-									{
-										builder.AppendLine($"result.{element.Name} = {asyncKeyword}Deserialize{element.Type.TypeName}{element.Type.CollectionName}{asyncSuffix}(reader, depth + 1);");
-									}
+									builder.AppendLine($"result.{element.Name} = {asyncKeyword}Deserialize{element.Type.CollectionItemType.TypeName}{element.Type.TypeName}{asyncSuffix}(reader, depth + 1);");
 								}
 								else
 								{
@@ -127,18 +159,22 @@ public partial class XmlParserSourceGenerator
 								}
 							}
 
-							builder.AppendLine($"{asyncKeyword}reader.Skip{asyncSuffix}();");
+							// builder.AppendLine($"{asyncKeyword}reader.Skip{asyncSuffix}();");
 							builder.AppendLine("break;");
 						}
 					}
 
-					using (builder.IndentScope("default:"))
-					{
-						builder.AppendLine($"{asyncKeyword}reader.Skip{asyncSuffix}();");
-						builder.AppendLine("break;");
-					}
+					// using (builder.IndentScope("default:"))
+					// {
+					// 	builder.AppendLine($"{asyncKeyword}reader.Skip{asyncSuffix}();");
+					// 	builder.AppendLine("break;");
+					// }
 				}
+
+				builder.AppendLine();
+				builder.AppendLine($"{asyncKeyword}reader.Skip{asyncSuffix}();");
 			}
+
 			builder.AppendLine();
 			builder.AppendLine("return result;");
 		}
