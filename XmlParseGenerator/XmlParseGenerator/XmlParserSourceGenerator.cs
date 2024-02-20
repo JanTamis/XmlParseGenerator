@@ -180,7 +180,7 @@ public partial class XmlParserSourceGenerator : IIncrementalGenerator
 					using var writer = XmlWriter.Create(textWriter, settings);
 				
 					writer.WriteStartDocument();
-					Serialize{{type.TypeName}}(writer, value);
+					Serialize{{type.TypeName}}(writer, value, "{{rootName}}");
 					writer.WriteEndDocument();
 				
 					writer.Flush();
@@ -197,7 +197,7 @@ public partial class XmlParserSourceGenerator : IIncrementalGenerator
 					using var writer = XmlWriter.Create(stream, settings);
 				
 					writer.WriteStartDocument();
-					Serialize{{type.TypeName}}(writer, value);
+					Serialize{{type.TypeName}}(writer, value, "{{rootName}}");
 					writer.WriteEndDocument();
 				
 					writer.Flush();
@@ -241,7 +241,7 @@ public partial class XmlParserSourceGenerator : IIncrementalGenerator
 					await using var writer = XmlWriter.Create(textWriter, settings);
 				
 					await writer.WriteStartDocumentAsync();
-					await Serialize{{type.TypeName}}Async(writer, value);
+					await Serialize{{type.TypeName}}Async(writer, value, "{{rootName}}");
 					await writer.WriteEndDocumentAsync();
 				
 					await writer.FlushAsync();
@@ -264,7 +264,7 @@ public partial class XmlParserSourceGenerator : IIncrementalGenerator
 					await using var writer = XmlWriter.Create(stream, settings);
 			
 					await writer.WriteStartDocumentAsync();
-					await Serialize{{type.TypeName}}Async(writer, value);
+					await Serialize{{type.TypeName}}Async(writer, value, "{{rootName}}");
 					await writer.WriteEndDocumentAsync();
 			
 					await writer.FlushAsync();
@@ -311,7 +311,6 @@ public partial class XmlParserSourceGenerator : IIncrementalGenerator
 				}
 			
 				{{String.Join("\n\t", serializerTypes.Values)}}
-				
 				{{String.Join("\n\n\t", deserializerTypes.Values)}}
 			}
 			"""";

@@ -18,6 +18,7 @@ public class Test
 	[XmlAttribute("age")]
 	public int Age { get; set; }
 
-	[XmlElement("children")]
+	[XmlArray("children")]
+	[XmlArrayItem(ElementName = "child")]
 	public List<Test> Children { get; set; }
 }
