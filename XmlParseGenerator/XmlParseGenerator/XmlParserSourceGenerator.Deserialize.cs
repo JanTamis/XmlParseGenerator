@@ -16,58 +16,79 @@ public partial class XmlParserSourceGenerator
 			return;
 		}
 
-		result.Add(type.TypeName, CreateDeserializeForType(type, false));
-		result.Add($"{type.TypeName}Async", CreateDeserializeForType(type, true));
-
-		if (type.CollectionType != CollectionType.None)
+		if (type.HasSerializableInterface)
 		{
-			result.Add($"{type.TypeName}{type.CollectionName}", type.CollectionType switch
-			{
-				CollectionType.Collection => CreateDeserializeForTypeCollection(type, false),
-				CollectionType.Array      => CreateDeserializeForTypeArray(type, false),
-			});
+			var builder = new IndentedStringBuilder("\t", "\t");
 
-			result.Add($"{type.TypeName}{type.CollectionName}Async", type.CollectionType switch
+			builder.AppendLineWithoutIndent("private static T DeserializeXmlSerializable<T>(XmlReader reader) where T : IXmlSerializable, new()");
+			using (builder.IndentBlockNoNewline())
 			{
-				CollectionType.Collection => CreateDeserializeForTypeCollection(type, true),
-				CollectionType.Array      => CreateDeserializeForTypeArray(type, true),
-			});
-		}
-
-		foreach (var member in type?.Members ?? System.Linq.Enumerable.Empty<MemberModel>())
-		{
-			if (member.Type.CollectionType != CollectionType.None)
-			{
-				if (!result.ContainsKey($"{member.Type.TypeName}{member.Type.CollectionName}"))
-				{
-					result.Add($"{member.Type.TypeName}{member.Type.CollectionName}", member.Type.CollectionType switch
-					{
-						CollectionType.Collection => CreateDeserializeForTypeCollection(member.Type, false),
-						CollectionType.Array      => CreateDeserializeForTypeArray(member.Type, false),
-					});
-
-					result.Add($"{member.Type.TypeName}{member.Type.CollectionName}Async", member.Type.CollectionType switch
-					{
-						CollectionType.Collection => CreateDeserializeForTypeCollection(member.Type, true),
-						CollectionType.Array      => CreateDeserializeForTypeArray(member.Type, true),
-					});
-				}
+				builder.AppendLine("var result = new T();");
+				builder.AppendLine();
+				builder.AppendLine("result.ReadXml(reader);");
+				builder.AppendLine();
+				builder.AppendLine("return result;");
 			}
-			else if (!result.ContainsKey(member.Type.TypeName))
+
+			result.Add("IXmlSerializable", builder.ToString());
+		}
+		else
+		{
+			result.Add(type.TypeName, CreateDeserializeForType(type, false));
+			result.Add($"{type.TypeName}Async", CreateDeserializeForType(type, true));
+
+			if (type.CollectionType != CollectionType.None)
 			{
-				CreateDeserializeForType(result, member?.Type);
+				result.Add($"{type.TypeName}{type.CollectionName}", type.CollectionType switch
+				{
+					CollectionType.Collection => CreateDeserializeForTypeCollection(type, false),
+					CollectionType.Array => CreateDeserializeForTypeArray(type, false),
+				});
+
+				result.Add($"{type.TypeName}{type.CollectionName}Async", type.CollectionType switch
+				{
+					CollectionType.Collection => CreateDeserializeForTypeCollection(type, true),
+					CollectionType.Array => CreateDeserializeForTypeArray(type, true),
+				});
+			}
+
+			foreach (var member in type?.Members ?? System.Linq.Enumerable.Empty<MemberModel>())
+			{
+				if (member.Type.CollectionType != CollectionType.None)
+				{
+					if (!result.ContainsKey($"{member.Type.TypeName}{member.Type.CollectionName}"))
+					{
+						result.Add($"{member.Type.TypeName}{member.Type.CollectionName}", member.Type.CollectionType switch
+						{
+							CollectionType.Collection => CreateDeserializeForTypeCollection(member.Type, false),
+							CollectionType.Array => CreateDeserializeForTypeArray(member.Type, false),
+						});
+
+						result.Add($"{member.Type.TypeName}{member.Type.CollectionName}Async", member.Type.CollectionType switch
+						{
+							CollectionType.Collection => CreateDeserializeForTypeCollection(member.Type, true),
+							CollectionType.Array => CreateDeserializeForTypeArray(member.Type, true),
+						});
+					}
+				}
+				else if (!result.ContainsKey(member.Type.TypeName))
+				{
+					CreateDeserializeForType(result, member?.Type);
+				}
 			}
 		}
 	}
 
 	private string CreateDeserializeForType(ItemModel? type, bool isAsync)
 	{
-		if (type is null)
+		if (type is null || (type.HasSerializableInterface && isAsync))
 		{
 			return String.Empty;
 		}
 
-		var async = isAsync ? $"async Task<{type.TypeName}>" : type.TypeName;
+		var async = isAsync
+			? $"async Task<{type.TypeName}>"
+			: type.TypeName;
 		var asyncKeyword = isAsync ? "await " : String.Empty;
 		var asyncSuffix = isAsync ? "Async" : String.Empty;
 
@@ -82,122 +103,122 @@ public partial class XmlParserSourceGenerator
 			if (type.HasSerializableInterface)
 			{
 				builder.AppendLine("result.ReadXml(reader);");
-				builder.AppendLine();
 			}
 			else
 			{
 				if (type.Members.Any(a => a.Attributes.ContainsKey(AttributeType.Attribute)))
-			{
-				using (builder.IndentBlock("if (reader.HasAttributes)"))
 				{
-					using (builder.IndentBlock("while (reader.MoveToNextAttribute())"))
+					using (builder.IndentBlock("if (reader.HasAttributes)"))
 					{
-						using (builder.IndentBlock("switch (reader.Name)"))
+						using (builder.IndentBlock("while (reader.MoveToNextAttribute())"))
 						{
-							foreach (var member in type.Members)
+							using (builder.IndentBlock("switch (reader.Name)"))
 							{
-								if (member.Attributes.TryGetValue(AttributeType.Attribute, out var attributeModel))
+								foreach (var member in type.Members)
 								{
-									using (builder.IndentScope($"case \"{attributeModel.ConstructorArguments[0].Value}\":"))
+									if (member.Attributes.TryGetValue(AttributeType.Attribute, out var attributeModel))
 									{
-										if (member.Type.SpecialType == SpecialType.System_String)
+										using (builder.IndentScope($"case \"{attributeModel.ConstructorArguments[0].Value}\":"))
 										{
-											builder.AppendLine($"result.{member.Name} = reader.Value;");
+											if (member.Type.SpecialType == SpecialType.System_String)
+											{
+												builder.AppendLine($"result.{member.Name} = reader.Value;");
+											}
+											else
+											{
+												builder.AppendLine($"result.{member.Name} = XmlConvert.To{member.Type.TypeName}(reader.Value);");
+											}
+											builder.AppendLine("break;");
 										}
-										else
-										{
-											builder.AppendLine($"result.{member.Name} = XmlConvert.To{member.Type.TypeName}(reader.Value);");
-										}
-										builder.AppendLine("break;");
 									}
 								}
 							}
 						}
 					}
+
+					builder.AppendLine();
 				}
 
-				builder.AppendLine();
-			}
-
-			using (builder.IndentBlock($"while ({asyncKeyword}reader.Read{asyncSuffix}())"))
-			{
-				using (builder.IndentScope("if (reader.Depth != depth || !reader.IsStartElement() || reader.IsEmptyElement)"))
+				using (builder.IndentBlock($"while ({asyncKeyword}reader.Read{asyncSuffix}())"))
 				{
-					builder.AppendLine("break;");
-				}
-
-				builder.AppendLine();
-				using (builder.IndentBlock("switch (reader.Name)"))
-				{
-					foreach (var element in type.Members.Where(w => !w.Attributes.ContainsKey(AttributeType.Attribute)))
+					using (builder.IndentScope("if (reader.Depth != depth || !reader.IsStartElement() || reader.IsEmptyElement)"))
 					{
-						var name = element.Name;
-
-						if (element.Attributes.TryGetValue(AttributeType.Element, out var attribute))
-						{
-							name = attribute.ConstructorArguments[0].Value.ToString();
-						}
-
-						if (element.Type.CollectionType != CollectionType.None && element.Attributes.TryGetValue(AttributeType.Array, out var arrayAttribute))
-						{
-							name = arrayAttribute.ConstructorArguments[0].Value.ToString();
-						}
-
-						using (builder.IndentScope($"case \"{name}\":"))
-						{
-							if (!IsValidType(element.Type.SpecialType))
-							{
-								builder.AppendLine($"{asyncKeyword}reader.Read{asyncSuffix}();");
-
-								if (element.Type.SpecialType == SpecialType.System_String)
-								{
-									builder.AppendLine($"result.{element.Name} = reader.Value;");
-								}
-								else
-								{
-									builder.AppendLine($"result.{element.Name} = XmlConvert.To{element.Type.TypeName}(reader.Value);");
-								}
-							}
-							else
-							{
-								if (element.Type.CollectionType != CollectionType.None)
-								{
-									var elementName = element.Type.TypeName;
-									
-									if (element.Attributes.TryGetValue(AttributeType.ArrayItem, out var arrayItemAttribute) && arrayItemAttribute.NamedParameters.TryGetValue("ElementName", out var result))
-									{
-										elementName = result.Value.ToString();
-									}
-									
-									builder.AppendLine($"result.{element.Name} = {asyncKeyword}Deserialize{element.Type.CollectionItemType.TypeName}{element.Type.TypeName}{asyncSuffix}(reader, depth + 1, \"{elementName}\");");
-								}
-								else
-								{
-									builder.AppendLine($"result.{element.Name} = {asyncKeyword}Deserialize{element.Type.TypeName}{asyncSuffix}(reader, depth + 1);");
-								}
-							}
-
-							// builder.AppendLine($"{asyncKeyword}reader.Skip{asyncSuffix}();");
-							builder.AppendLine("break;");
-						}
+						builder.AppendLine("break;");
 					}
 
-					// using (builder.IndentScope("default:"))
-					// {
-					// 	builder.AppendLine($"{asyncKeyword}reader.Skip{asyncSuffix}();");
-					// 	builder.AppendLine("break;");
-					// }
+					builder.AppendLine();
+					using (builder.IndentBlock("switch (reader.Name)"))
+					{
+						foreach (var element in type.Members.Where(w => !w.Attributes.ContainsKey(AttributeType.Attribute)))
+						{
+							var name = element.Name;
+
+							if (element.Attributes.TryGetValue(AttributeType.Element, out var attribute))
+							{
+								name = attribute.ConstructorArguments[0].Value.ToString();
+							}
+
+							if (element.Type.CollectionType != CollectionType.None && element.Attributes.TryGetValue(AttributeType.Array, out var arrayAttribute))
+							{
+								name = arrayAttribute.ConstructorArguments[0].Value.ToString();
+							}
+
+							using (builder.IndentScope($"case \"{name}\":"))
+							{
+								if (!IsValidType(element.Type.SpecialType))
+								{
+									builder.AppendLine($"{asyncKeyword}reader.Read{asyncSuffix}();");
+
+									if (element.Type.SpecialType == SpecialType.System_String)
+									{
+										builder.AppendLine($"result.{element.Name} = reader.Value;");
+									}
+									else
+									{
+										builder.AppendLine($"result.{element.Name} = XmlConvert.To{element.Type.TypeName}(reader.Value);");
+									}
+								}
+								else
+								{
+									if (element.Type.CollectionType != CollectionType.None)
+									{
+										var elementName = element.Type.TypeName;
+
+										if (element.Attributes.TryGetValue(AttributeType.ArrayItem, out var arrayItemAttribute) && arrayItemAttribute.NamedParameters.TryGetValue("ElementName", out var result))
+										{
+											elementName = result.Value.ToString();
+										}
+
+										builder.AppendLine($"result.{element.Name} = {asyncKeyword}Deserialize{element.Type.CollectionItemType.TypeName}{element.Type.TypeName}{asyncSuffix}(reader, depth + 1, \"{elementName}\");");
+									}
+									else
+									{
+										builder.AppendLine($"result.{element.Name} = {asyncKeyword}Deserialize{element.Type.TypeName}{asyncSuffix}(reader, depth + 1);");
+									}
+								}
+
+								// builder.AppendLine($"{asyncKeyword}reader.Skip{asyncSuffix}();");
+								builder.AppendLine("break;");
+							}
+						}
+
+						// using (builder.IndentScope("default:"))
+						// {
+						// 	builder.AppendLine($"{asyncKeyword}reader.Skip{asyncSuffix}();");
+						// 	builder.AppendLine("break;");
+						// }
+					}
+
+					builder.AppendLine();
+					builder.AppendLine($"{asyncKeyword}reader.Skip{asyncSuffix}();");
 				}
-
-				builder.AppendLine();
-				builder.AppendLine($"{asyncKeyword}reader.Skip{asyncSuffix}();");
 			}
-			}
-
-			
 
 			builder.AppendLine();
-			builder.AppendLine("return result;");
+
+			builder.AppendLine(type.HasSerializableInterface && isAsync
+				? "return Task.FromResult(result);"
+				: "return result;");
 		}
 
 		return builder.ToString();

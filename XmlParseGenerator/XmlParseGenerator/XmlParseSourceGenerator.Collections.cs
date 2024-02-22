@@ -35,7 +35,16 @@ public partial class XmlParserSourceGenerator
 					builder.AppendLine("buffer = tempBuffer;");
 				}
 				builder.AppendLine();
-				builder.AppendLine($"buffer[index++] = {asyncKeyword}Deserialize{type.CollectionItemType.TypeName}{asyncSuffix}(reader, depth + 1);");
+
+				if (type.CollectionItemType.HasSerializableInterface)
+				{
+					builder.AppendLine($"buffer[index++] = Deserialize{type.CollectionItemType.TypeName}(reader, depth + 1);");
+				}
+				else
+				{
+					builder.AppendLine($"buffer[index++] = {asyncKeyword}Deserialize{type.CollectionItemType.TypeName}{asyncSuffix}(reader, depth + 1);");
+				}
+				
 			},
 			returnStatement: (builder) =>
 			{
@@ -61,7 +70,17 @@ public partial class XmlParserSourceGenerator
 				? $"async Task<{type.CollectionName}<{type.CollectionItemType.TypeName}>>" 
 				: $"{type.CollectionName}<{type.CollectionItemType.TypeName}>",
 			initialize: (builder) => builder.AppendLine($"var result = new {type.CollectionName}<{type.CollectionItemType.TypeName}>();"),
-			body: (builder) => builder.AppendLine($"result.Add({asyncKeyword}Deserialize{type.CollectionItemType.TypeName}{asyncSuffix}(reader, depth + 1));"),
+			body: (builder) =>
+			{
+				if (type.CollectionItemType.HasSerializableInterface)
+				{
+					builder.AppendLine($"result.Add(Deserialize{type.CollectionItemType.TypeName}(reader, depth + 1));");
+				}
+				else
+				{
+					builder.AppendLine($"result.Add({asyncKeyword}Deserialize{type.CollectionItemType.TypeName}{asyncSuffix}(reader, depth + 1));");
+				}
+			},
 			returnStatement: (builder) => builder.AppendLine("return result;"));
 	}
 

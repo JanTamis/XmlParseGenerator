@@ -38,6 +38,7 @@ public partial class XmlParserSourceGenerator : IIncrementalGenerator
 			.Append("System.Threading.Tasks")
 			.Append("System.Runtime.CompilerServices")
 			.Append("System.Xml")
+			.Append("System.Xml.Serialization")
 			.Distinct()
 			.OrderBy(o => o)
 			.Select(s => $"using {s};\n");
@@ -51,7 +52,23 @@ public partial class XmlParserSourceGenerator : IIncrementalGenerator
 		var rootName = type.Attributes.TryGetValue(AttributeType.Root, out var rootAttribute) && rootAttribute.ConstructorArguments.Count > 0
 			? rootAttribute.ConstructorArguments[0].Value.ToString()
 			: type.TypeName;
-		
+
+		var deserializeTextAsync = type.HasSerializableInterface
+			? $"DeserializeXmlSerializable<{type.TypeName}>(reader);"
+			: $"await Deserialize{type.TypeName}Async(reader, 1);";
+
+		var deserializeText = type.HasSerializableInterface
+			? $"DeserializeXmlSerializable<{type.TypeName}>(reader);"
+			: $"Deserialize{type.TypeName}(reader, 1);";
+
+		var serializeTextAsync = type.HasSerializableInterface
+			? $"SerializeXmlSerializable<{type.TypeName}>(writer, value);"
+			: $"await Serialize{type.TypeName}Async(writer, value, \"{rootName}\");";
+
+		var serializeText = type.HasSerializableInterface
+			? $"SerializeXmlSerializable<{type.TypeName}>(writer, value);"
+			: $"Serialize{type.TypeName}Async(writer, value, \"{rootName}\");";
+
 		var code = $$""""
 			{{String.Concat(namespaces)}}
 			namespace {{type.RootNamespace}};
@@ -116,7 +133,7 @@ public partial class XmlParserSourceGenerator : IIncrementalGenerator
 					using var writer = XmlWriter.Create(textWriter, settings);
 				
 					writer.WriteStartDocument();
-					Serialize{{type.TypeName}}(writer, value, "{{rootName}}");
+					{{serializeText}}
 					writer.WriteEndDocument();
 				
 					writer.Flush();
@@ -133,7 +150,7 @@ public partial class XmlParserSourceGenerator : IIncrementalGenerator
 					using var writer = XmlWriter.Create(stream, settings);
 				
 					writer.WriteStartDocument();
-					Serialize{{type.TypeName}}(writer, value, "{{rootName}}");
+					{{serializeText}}
 					writer.WriteEndDocument();
 				
 					writer.Flush();
@@ -177,7 +194,7 @@ public partial class XmlParserSourceGenerator : IIncrementalGenerator
 					await using var writer = XmlWriter.Create(textWriter, settings);
 				
 					await writer.WriteStartDocumentAsync();
-					await Serialize{{type.TypeName}}Async(writer, value, "{{rootName}}");
+					{{serializeTextAsync}}
 					await writer.WriteEndDocumentAsync();
 				
 					await writer.FlushAsync();
@@ -200,7 +217,7 @@ public partial class XmlParserSourceGenerator : IIncrementalGenerator
 					await using var writer = XmlWriter.Create(stream, settings);
 			
 					await writer.WriteStartDocumentAsync();
-					await Serialize{{type.TypeName}}Async(writer, value, "{{rootName}}");
+					{{serializeTextAsync}}
 					await writer.WriteEndDocumentAsync();
 			
 					await writer.FlushAsync();
@@ -219,7 +236,7 @@ public partial class XmlParserSourceGenerator : IIncrementalGenerator
 				    
 				    if (reader.Name == "{{rootName}}")
 				    {
-				      return Deserialize{{type.TypeName}}(reader, 1);
+				      return {{deserializeText}}
 				    }
 					}
 					
@@ -239,7 +256,7 @@ public partial class XmlParserSourceGenerator : IIncrementalGenerator
 				    
 				    if (reader.Name == "{{rootName}}")
 				    {
-				      return await Deserialize{{type.TypeName}}Async(reader, 1);
+				      return {{deserializeTextAsync}}
 				    }
 					}
 					
@@ -323,47 +340,52 @@ public partial class XmlParserSourceGenerator : IIncrementalGenerator
 			result.Namespaces.Add(namedType.ContainingNamespace.ToDisplayString());
 		}
 
-		foreach (var member in namedType.GetMembers())
+		if (!result.HasSerializableInterface)
 		{
-			MemberModel? memberModel = null;
-
-			switch (member)
+			foreach (var member in namedType.GetMembers())
 			{
-				case IPropertySymbol { CanBeReferencedByName: true, IsStatic: false, IsIndexer: false } property:
-					if (property.Type.ContainingNamespace is not null)
-					{
-						result.Namespaces.Add(property.Type.ContainingNamespace.ToDisplayString());
-					}
+				MemberModel? memberModel = null;
 
-					memberModel = new MemberModel
-					{
-						Name = property.Name,
-						Type = FillItemModel(property.Type, types),
-						MemberType = MemberType.Property,
-					};
-					break;
-				case IFieldSymbol { CanBeReferencedByName: true, IsStatic: false, } field:
-					if (field.Type.ContainingNamespace is not null)
-					{
-						result.Namespaces.Add(field.Type.ContainingNamespace.ToDisplayString());
-					}
+				switch (member)
+				{
+					case IPropertySymbol { CanBeReferencedByName: true, IsStatic: false, IsIndexer: false } property:
+						if (property.Type.ContainingNamespace is not null)
+						{
+							result.Namespaces.Add(property.Type.ContainingNamespace.ToDisplayString());
+						}
 
-					memberModel = new MemberModel
-					{
-						Name = field.Name,
-						Type = FillItemModel(field.Type, types),
-						MemberType = MemberType.Field,
-					};
-					break;
-			}
+						memberModel = new MemberModel
+						{
+							Name = property.Name,
+							Type = FillItemModel(property.Type, types),
+							MemberType = MemberType.Property,
+						};
+						break;
+					case IFieldSymbol { CanBeReferencedByName: true, IsStatic: false, } field:
+						if (field.Type.ContainingNamespace is not null)
+						{
+							result.Namespaces.Add(field.Type.ContainingNamespace.ToDisplayString());
+						}
 
-			if (memberModel is not null)
-			{
-				memberModel.Attributes = GetAtributes(member);
+						memberModel = new MemberModel
+						{
+							Name = field.Name,
+							Type = FillItemModel(field.Type, types),
+							MemberType = MemberType.Field,
+						};
+						break;
+				}
 
-				result.Members.Add(memberModel);
+				if (memberModel is not null)
+				{
+					memberModel.Attributes = GetAtributes(member);
+
+					result.Members.Add(memberModel);
+				}
 			}
 		}
+
+		
 
 		return result;
 	}

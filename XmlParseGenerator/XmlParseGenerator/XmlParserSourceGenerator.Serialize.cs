@@ -16,14 +16,29 @@ public partial class XmlParserSourceGenerator
 			return;
 		}
 
-		result.Add(type.TypeName, CreateSerializeForType(type, false));
-		result.Add($"{type.TypeName}Async", CreateSerializeForType(type, true));
-
-		foreach (var member in type?.Members ?? System.Linq.Enumerable.Empty<MemberModel>())
+		if (type.HasSerializableInterface)
 		{
-			if (!result.ContainsKey(member.Type.TypeName))
+			var builder = new IndentedStringBuilder("\t", "\t");
+
+			builder.AppendLineWithoutIndent("private static void SerializeXmlSerializable<T>(XmlWriter writer, T item) where T : IXmlSerializable");
+			using (builder.IndentBlock())
 			{
-				CreateSerializeForType(result, member?.Type);
+				builder.AppendLine("item.WriteXml(writer);");
+			}
+
+			result.Add("IXmlSerializable", builder.ToString());
+		}
+		else
+		{
+			result.Add(type.TypeName, CreateSerializeForType(type, false));
+			result.Add($"{type.TypeName}Async", CreateSerializeForType(type, true));
+
+			foreach (var member in type?.Members ?? System.Linq.Enumerable.Empty<MemberModel>())
+			{
+				if (!result.ContainsKey(member.Type.TypeName))
+				{
+					CreateSerializeForType(result, member?.Type);
+				}
 			}
 		}
 	}
@@ -35,10 +50,11 @@ public partial class XmlParserSourceGenerator
 			return String.Empty;
 		}
 
-		var async = isAsync ? "async Task" : "void";
+		var async = isAsync
+			? "async Task"
+			: "void";
 		var asyncKeyword = isAsync ? "await " : String.Empty;
 		var asyncSuffix = isAsync ? "Async" : String.Empty;
-
 
 		var builder = new IndentedStringBuilder("\t", "\t");
 
@@ -47,8 +63,12 @@ public partial class XmlParserSourceGenerator
 		{
 			if (type.HasSerializableInterface)
 			{
-				builder.AppendLine("item.Serialize(writer);");
-				builder.AppendLine();
+				builder.AppendLine("item.WriteXml(writer);");
+				if (isAsync)
+				{
+					builder.AppendLine();
+					builder.AppendLine("return Task.CompletedTask;");
+				}
 			}
 			else
 			{
