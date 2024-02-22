@@ -1,4 +1,5 @@
-﻿using System.IO;
+﻿using System;
+using System.IO;
 using System.Threading.Tasks;
 using System.Xml.Serialization;
 using BenchmarkDotNet.Attributes;
@@ -30,7 +31,7 @@ public class Program
 				},
 			]
 		};
-
+		
 		var result = await TestSerializer.SerializeAsync(model);
 
 		var resultObject = await TestSerializer.DeserializeAsync(result);
@@ -97,30 +98,26 @@ public class TestClass
 		_toDeserialize = TestSerializer.Serialize(_test);
 	}
 
-	[Benchmark(Baseline = true)]
-	public string Default()
+	[Benchmark]
+	public Test Default()
 	{
-		using var builder = new StringWriter();
+		using var builder = new StringReader(_toDeserialize);
 
-		_serializer.Serialize(builder, _test);
-
-		return builder.ToString();
+		return _serializer.Deserialize(builder) as Test;
 	}
 
 	[Benchmark]
-	public string DefaultSlow()
+	public Test DefaultSlow()
 	{
 		var serializer = new XmlSerializer(typeof(Test));
-		using var builder = new StringWriter();
+		using var builder = new StringReader(_toDeserialize);
 
-		serializer.Serialize(builder, _test);
-
-		return builder.ToString();
+		return serializer.Deserialize(builder) as Test;
 	}
 
-	[Benchmark]
-	public string Generator()
+	[Benchmark(Baseline = true)]
+	public Test Generator()
 	{
-		return TestSerializer.Serialize(_test);
+		return TestSerializer.Deserialize(_toDeserialize);
 	}
 }

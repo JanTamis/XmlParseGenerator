@@ -27,7 +27,7 @@ public partial class XmlParserSourceGenerator
 			}
 		}
 	}
-	
+
 	private string CreateSerializeForType(ItemModel? type, bool isAsync)
 	{
 		if (type is null)
@@ -39,136 +39,145 @@ public partial class XmlParserSourceGenerator
 		var asyncKeyword = isAsync ? "await " : String.Empty;
 		var asyncSuffix = isAsync ? "Async" : String.Empty;
 
-		
 
 		var builder = new IndentedStringBuilder("\t", "\t");
 
 		builder.AppendLineWithoutIndent($"private static {async} Serialize{type.TypeName}{asyncSuffix}(XmlWriter writer, {type.TypeName} item, string rootName)");
 		using (_ = builder.IndentBlock())
 		{
-			builder.AppendLine($"{asyncKeyword}writer.WriteStartElement{asyncSuffix}(null, rootName, null);");
-			builder.AppendLine();
-			
-			foreach (var attribute in type.Members.Where(w => w.Attributes.ContainsKey(AttributeType.Attribute)))
+			if (type.HasSerializableInterface)
 			{
-				var value = attribute.Attributes.TryGetValue(AttributeType.Attribute, out var attributeModel) && attributeModel.ConstructorArguments.Count > 0
-					? attributeModel.ConstructorArguments[0].Value.ToString()
-					: attribute.Name;
-				
-				if (attribute.Type.IsClass)
-				{
-					builder.AppendLine($"{asyncKeyword}writer.WriteAttributeString{asyncSuffix}(null, \"{value}\", null, item.{attribute.Name}?.ToString());");
-				}
-				else
-				{
-					builder.AppendLine($"{asyncKeyword}writer.WriteAttributeString{asyncSuffix}(null, \"{value}\", null, item.{attribute.Name}.ToString());");
-				}
-			}
-			
-			if (type.Members.Any(a => a.Attributes.ContainsKey(AttributeType.Attribute)))
-			{
+				builder.AppendLine("item.Serialize(writer);");
 				builder.AppendLine();
 			}
-
-			foreach (var element in type.Members)
+			else
 			{
-				if (element.Attributes.ContainsKey(AttributeType.Attribute))
-				{
-					continue;
-				}
-				
-				var name = element.Type.TypeName;
-				
-				if (element.Attributes.TryGetValue(AttributeType.Element, out var elementAttribute) && elementAttribute.ConstructorArguments.Count > 0)
-				{
-					name = elementAttribute.ConstructorArguments[0].Value.ToString();
-				}
-				
-				var elementName = "item";
-				var classCheck = $"{elementName}.{element.Name}";
+				builder.AppendLine($"{asyncKeyword}writer.WriteStartElement{asyncSuffix}(null, rootName, null);");
+				builder.AppendLine();
 
-				if (element.Type.CollectionType != CollectionType.None)
+				foreach (var attribute in type.Members.Where(w => w.Attributes.ContainsKey(AttributeType.Attribute)))
 				{
-					var collectionName = name;
+					var value = attribute.Attributes.TryGetValue(AttributeType.Attribute, out var attributeModel) && attributeModel.ConstructorArguments.Count > 0
+						? attributeModel.ConstructorArguments[0].Value.ToString()
+						: attribute.Name;
 
-					if (element.Attributes.TryGetValue(AttributeType.Array, out var arrayAttribute) && arrayAttribute.ConstructorArguments.Count > 0)
+					if (attribute.Type.IsClass)
 					{
-						collectionName = arrayAttribute.ConstructorArguments[0].Value.ToString();
+						builder.AppendLine($"{asyncKeyword}writer.WriteAttributeString{asyncSuffix}(null, \"{value}\", null, item.{attribute.Name}?.ToString());");
 					}
-					
-					if (element.Type.IsClass)
+					else
 					{
-						builder.AppendLine($"if (item.{element.Name} != null)");
+						builder.AppendLine($"{asyncKeyword}writer.WriteAttributeString{asyncSuffix}(null, \"{value}\", null, item.{attribute.Name}.ToString());");
+					}
+				}
+
+				if (type.Members.Any(a => a.Attributes.ContainsKey(AttributeType.Attribute)))
+				{
+					builder.AppendLine();
+				}
+
+				foreach (var element in type.Members)
+				{
+					if (element.Attributes.ContainsKey(AttributeType.Attribute))
+					{
+						continue;
+					}
+
+					var name = element.Type.TypeName;
+
+					if (element.Attributes.TryGetValue(AttributeType.Element, out var elementAttribute) && elementAttribute.ConstructorArguments.Count > 0)
+					{
+						name = elementAttribute.ConstructorArguments[0].Value.ToString();
+					}
+
+					var elementName = "item";
+					var classCheck = $"{elementName}.{element.Name}";
+
+					if (element.Type.CollectionType != CollectionType.None)
+					{
+						var collectionName = name;
+
+						if (element.Attributes.TryGetValue(AttributeType.Array, out var arrayAttribute) && arrayAttribute.ConstructorArguments.Count > 0)
+						{
+							collectionName = arrayAttribute.ConstructorArguments[0].Value.ToString();
+						}
+
+						if (element.Type.IsClass)
+						{
+							builder.AppendLine($"if (item.{element.Name} != null)");
+							builder.AppendLine("{");
+							builder.Indent();
+						}
+
+						builder.AppendLine($"{asyncKeyword}writer.WriteStartElement{asyncSuffix}(null, \"{collectionName}\", null);");
+						builder.AppendLine();
+
+						builder.AppendLine($"foreach (var element in item.{element.Name})");
 						builder.AppendLine("{");
 						builder.Indent();
+
+						elementName = "element";
+						classCheck = "element";
 					}
-					builder.AppendLine($"{asyncKeyword}writer.WriteStartElement{asyncSuffix}(null, \"{collectionName}\", null);");
-					builder.AppendLine();
 
-					builder.AppendLine($"foreach (var element in item.{element.Name})");
-					builder.AppendLine("{");
-					builder.Indent();
-
-					elementName = "element";
-					classCheck = "element";
-				}
-
-				if (IsValidType(element.Type.SpecialType))
-				{
-					var tempType = element.Type.CollectionItemType ?? element.Type;
-					
-					var itemName = element.Attributes.TryGetValue(AttributeType.ArrayItem, out var arrayItemAttribute)
-						? arrayItemAttribute.NamedParameters.TryGetValue("ElementName", out var result)
-							? result.Value.ToString()
-							: tempType.TypeName
-						: tempType.TypeName;
-					
-					if (element.Type.IsClass)
+					if (IsValidType(element.Type.SpecialType))
 					{
-						using (builder.IndentBlock($"if ({classCheck} != null)"))
+						var tempType = element.Type.CollectionItemType ?? element.Type;
+
+						var itemName = element.Attributes.TryGetValue(AttributeType.ArrayItem, out var arrayItemAttribute)
+							? arrayItemAttribute.NamedParameters.TryGetValue("ElementName", out var result)
+								? result.Value.ToString()
+								: tempType.TypeName
+							: tempType.TypeName;
+
+						if (element.Type.IsClass)
 						{
-							builder.AppendLine($"{asyncKeyword}Serialize{tempType.TypeName}{asyncSuffix}(writer, {classCheck}, \"{itemName}\");");
+							using (builder.IndentBlock($"if ({classCheck} != null)"))
+							{
+								builder.AppendLine($"{asyncKeyword}Serialize{tempType.TypeName}{asyncSuffix}(writer, {classCheck}, \"{itemName}\");");
+							}
+						}
+						else
+						{
+							builder.AppendLine($"{asyncKeyword}Serialize{element.Type.TypeName}{asyncSuffix}(writer, {elementName}.{element.Name}, \"{itemName}\");");
 						}
 					}
 					else
 					{
-						builder.AppendLine($"{asyncKeyword}Serialize{element.Type.TypeName}{asyncSuffix}(writer, {elementName}.{element.Name}, \"{itemName}\");");
-					}
-				}
-				else
-				{
-					builder.AppendLine($"{asyncKeyword}writer.WriteStartElement{asyncSuffix}(null, \"{name}\", null);");
+						builder.AppendLine($"{asyncKeyword}writer.WriteStartElement{asyncSuffix}(null, \"{name}\", null);");
 
-					if (element.Type.SpecialType == SpecialType.System_String)
-					{
-						builder.AppendLine($"{asyncKeyword}writer.WriteString{asyncSuffix}({elementName}.{element.Name});");
-					}
-					else
-					{
-						builder.AppendLine($"{asyncKeyword}writer.WriteString{asyncSuffix}(XmlConvert.ToString({elementName}.{element.Name}));");
+						if (element.Type.SpecialType == SpecialType.System_String)
+						{
+							builder.AppendLine($"{asyncKeyword}writer.WriteString{asyncSuffix}({elementName}.{element.Name});");
+						}
+						else
+						{
+							builder.AppendLine($"{asyncKeyword}writer.WriteString{asyncSuffix}(XmlConvert.ToString({elementName}.{element.Name}));");
+						}
+
+						builder.AppendLine($"{asyncKeyword}writer.WriteEndElement{asyncSuffix}();");
+						builder.AppendLine();
 					}
 
-					builder.AppendLine($"{asyncKeyword}writer.WriteEndElement{asyncSuffix}();");
-					builder.AppendLine();
-				}
-
-				if (element.Type.CollectionType != CollectionType.None)
-				{
-					if (element.Type.IsClass)
+					if (element.Type.CollectionType != CollectionType.None)
 					{
+						if (element.Type.IsClass)
+						{
+							builder.Unindent();
+							builder.AppendLine("}");
+						}
+
+						builder.AppendLine();
+						builder.AppendLine($"{asyncKeyword}writer.WriteEndElement{asyncSuffix}();");
+
 						builder.Unindent();
 						builder.AppendLine("}");
+						builder.AppendLine();
 					}
-					builder.AppendLine();
-					builder.AppendLine($"{asyncKeyword}writer.WriteEndElement{asyncSuffix}();");
-
-					builder.Unindent();
-					builder.AppendLine("}");
-					builder.AppendLine();
 				}
-			}
 
-			builder.AppendLine($"{asyncKeyword}writer.WriteEndElement{asyncSuffix}();");
+				builder.AppendLine($"{asyncKeyword}writer.WriteEndElement{asyncSuffix}();");
+			}
 		}
 
 		return builder.ToString();

@@ -70,13 +70,13 @@ public partial class XmlParserSourceGenerator
 		var asyncKeyword = isAsync ? "await " : String.Empty;
 		var asyncSuffix = isAsync ? "Async" : String.Empty;
 
-		var rootName = type.CollectionItemType.Attributes.TryGetValue(AttributeType.Root, out var rootAttribute) && rootAttribute.ConstructorArguments.Count > 0
-			? rootAttribute.ConstructorArguments[0].Value.ToString()
-			: type.TypeName;
+		// var rootName = type.CollectionItemType.Attributes.TryGetValue(AttributeType.Root, out var rootAttribute) && rootAttribute.ConstructorArguments.Count > 0
+		// 	? rootAttribute.ConstructorArguments[0].Value.ToString()
+		// 	: type.TypeName;
 
 		var builder = new IndentedStringBuilder("\t", "\t");
 
-		builder.AppendLineWithoutIndent($"private static {resultType} Deserialize{type.CollectionItemType.TypeName}{type.TypeName}{asyncSuffix}(XmlReader reader, int depth)");
+		builder.AppendLineWithoutIndent($"private static {resultType} Deserialize{type.CollectionItemType.TypeName}{type.TypeName}{asyncSuffix}(XmlReader reader, int depth, string elementName)");
 		using (builder.IndentBlockNoNewline())
 		{
 			initialize(builder);
@@ -89,7 +89,7 @@ public partial class XmlParserSourceGenerator
 				}
 				builder.AppendLine();
 				
-				using (builder.IndentBlock($"if (reader.Name == \"{rootName}\")"))
+				using (builder.IndentBlock($"if (reader.Name == elementName)"))
 				{
 					body(builder);
 				}

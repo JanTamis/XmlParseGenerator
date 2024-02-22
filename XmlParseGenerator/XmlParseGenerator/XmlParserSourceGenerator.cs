@@ -23,81 +23,27 @@ public partial class XmlParserSourceGenerator : IIncrementalGenerator
 		});
 
 		context.RegisterSourceOutput(temp, Generate);
-
-		context.RegisterPostInitializationOutput(ctx => ctx.AddSource(
-			"BufferEnumerable.g.cs",
-			SourceText.From("""
-				using System;
-				using System.Buffers;
-				using System.Collections;
-				using System.Collections.Generic;
-				
-				namespace XmlGenerator;
-				
-				public class BufferEnumerable<T>(T[] buffer, int count) : IEnumerable<T>, IEnumerator<T>
-				{
-					private int index = -1;
-					private T _current;
-					private bool _disposed;
-				
-					public T Current => _current;
-				
-					public bool MoveNext()
-					{
-						if (_disposed)
-						{
-							throw new ObjectDisposedException(nameof(BufferEnumerable<T>), "Enumerable can't be enumerated twice");
-						}
-						
-						if (index + 1 < count)
-						{
-							index++;
-							_current = buffer[index];
-							return true;
-						}
-				
-						_current = default;
-						return false;
-					}
-					
-					public void Reset()
-					{
-						index = -1;
-					}
-					
-					public void Dispose()
-					{
-						ArrayPool<T>.Shared.Return(buffer);
-						_disposed = true;
-					}
-				
-					object IEnumerator.Current => _current;
-				
-					public IEnumerator<T> GetEnumerator()
-					{
-						return this;
-					}
-				
-					IEnumerator IEnumerable.GetEnumerator()
-					{
-						return GetEnumerator();
-					}
-				}
-				""", Encoding.UTF8)));
-
 	}
 
 	private void Generate(SourceProductionContext context, ItemModel? type)
 	{
 		var namespaces = type.Namespaces
 			.Where(w => w != "<global namespace>" && w != type.RootNamespace)
+			.Append("System.Collections.Generic")
+			.Append("System.Buffers")
+			.Append("System.IO")
+			.Append("System.Linq")
+			.Append("System.Text")
+			.Append("System.Globalization")
+			.Append("System.Threading.Tasks")
+			.Append("System.Runtime.CompilerServices")
+			.Append("System.Xml")
+			.Distinct()
 			.OrderBy(o => o)
 			.Select(s => $"using {s};\n");
 
 		var serializerTypes = new Dictionary<string, string>();
 		var deserializerTypes = new Dictionary<string, string>();
-		// var builderText = ParseTypeToBuilder(type, 1, "builder", "AppendLiteral", "AppendFormatted", out var holeCount, out var literalCount);
-		// var writerText = ParseTypeToBuilder(type, 1, "textWriter", "Write", "Write", out var writerHoleCount, out var writerLiteralCount);
 
 		CreateSerializeForType(serializerTypes, type);
 		CreateDeserializeForType(deserializerTypes, type);
@@ -105,18 +51,8 @@ public partial class XmlParserSourceGenerator : IIncrementalGenerator
 		var rootName = type.Attributes.TryGetValue(AttributeType.Root, out var rootAttribute) && rootAttribute.ConstructorArguments.Count > 0
 			? rootAttribute.ConstructorArguments[0].Value.ToString()
 			: type.TypeName;
-
+		
 		var code = $$""""
-			using System.Collections.Generic;
-			using System.Buffers;
-			using System.IO;
-			using System.Linq;
-			using System.Text;
-			using System.Globalization;
-			using System.Threading.Tasks;
-			using System.Runtime.CompilerServices;
-			using System.Xml;
-			using XmlGenerator;
 			{{String.Concat(namespaces)}}
 			namespace {{type.RootNamespace}};
 
@@ -346,6 +282,7 @@ public partial class XmlParserSourceGenerator : IIncrementalGenerator
 			IsClass = namedType.IsReferenceType,
 			SpecialType = namedType.SpecialType,
 			Attributes = GetAtributes(namedType),
+			HasSerializableInterface = namedType.AllInterfaces.Any(a => a.ToDisplayString() == "System.Xml.Serialization.IXmlSerializable"),
 		};
 
 		if (namedType is IArrayTypeSymbol arrayInfo)

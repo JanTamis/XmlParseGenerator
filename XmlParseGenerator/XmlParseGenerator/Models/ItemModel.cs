@@ -9,6 +9,7 @@ public record ItemModel
 	public string TypeName { get; set; }
 	public string RootNamespace { get; set; }
 	public bool IsClass { get; set; }
+	public bool HasSerializableInterface { get; set; }
 	
 	public ItemModel? CollectionItemType { get; set; }
 
@@ -22,5 +23,4 @@ public record ItemModel
 	public List<MemberModel> Members { get; set; } = new();
 	
 	public Dictionary<AttributeType, AttributeModel> Attributes { get; set; } = new();
-	
 }

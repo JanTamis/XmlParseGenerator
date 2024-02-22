@@ -79,8 +79,14 @@ public partial class XmlParserSourceGenerator
 			builder.AppendLine($"var result = new {type.TypeName}();");
 			builder.AppendLine();
 
-
-			if (type.Members.Any(a => a.Attributes.ContainsKey(AttributeType.Attribute)))
+			if (type.HasSerializableInterface)
+			{
+				builder.AppendLine("result.ReadXml(reader);");
+				builder.AppendLine();
+			}
+			else
+			{
+				if (type.Members.Any(a => a.Attributes.ContainsKey(AttributeType.Attribute)))
 			{
 				using (builder.IndentBlock("if (reader.HasAttributes)"))
 				{
@@ -132,6 +138,11 @@ public partial class XmlParserSourceGenerator
 							name = attribute.ConstructorArguments[0].Value.ToString();
 						}
 
+						if (element.Type.CollectionType != CollectionType.None && element.Attributes.TryGetValue(AttributeType.Array, out var arrayAttribute))
+						{
+							name = arrayAttribute.ConstructorArguments[0].Value.ToString();
+						}
+
 						using (builder.IndentScope($"case \"{name}\":"))
 						{
 							if (!IsValidType(element.Type.SpecialType))
@@ -151,7 +162,14 @@ public partial class XmlParserSourceGenerator
 							{
 								if (element.Type.CollectionType != CollectionType.None)
 								{
-									builder.AppendLine($"result.{element.Name} = {asyncKeyword}Deserialize{element.Type.CollectionItemType.TypeName}{element.Type.TypeName}{asyncSuffix}(reader, depth + 1);");
+									var elementName = element.Type.TypeName;
+									
+									if (element.Attributes.TryGetValue(AttributeType.ArrayItem, out var arrayItemAttribute) && arrayItemAttribute.NamedParameters.TryGetValue("ElementName", out var result))
+									{
+										elementName = result.Value.ToString();
+									}
+									
+									builder.AppendLine($"result.{element.Name} = {asyncKeyword}Deserialize{element.Type.CollectionItemType.TypeName}{element.Type.TypeName}{asyncSuffix}(reader, depth + 1, \"{elementName}\");");
 								}
 								else
 								{
@@ -174,6 +192,9 @@ public partial class XmlParserSourceGenerator
 				builder.AppendLine();
 				builder.AppendLine($"{asyncKeyword}reader.Skip{asyncSuffix}();");
 			}
+			}
+
+			
 
 			builder.AppendLine();
 			builder.AppendLine("return result;");
