@@ -36,7 +36,6 @@ public class Test : IXmlSerializable
 
 	public void WriteXml(XmlWriter writer)
 	{
-		writer.WriteStartElement("person");
-		writer.WriteEndElement();
+
 	}
 }

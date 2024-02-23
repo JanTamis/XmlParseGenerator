@@ -19,7 +19,7 @@ public class IndentedStringBuilder
 	public void AppendLine(string value)
 	{
 		DoIndent();
-		_builder.AppendLine(value);
+		_builder.AppendLine(value.Replace("\n", "\n" + new string('\t', _indentLevel)));
 	}
 
 	public void AppendLine()
@@ -30,7 +30,7 @@ public class IndentedStringBuilder
 
 	public void AppendLineWithoutIndent(string value)
 	{
-		_builder.AppendLine(value);
+		_builder.AppendLine(value.Replace("\n", "\n" + new string('\t', _indentLevel)));
 	}
 
 	public void Append(string value)

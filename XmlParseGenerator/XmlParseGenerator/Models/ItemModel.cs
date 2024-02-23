@@ -10,6 +10,9 @@ public record ItemModel
 	public string RootNamespace { get; set; }
 	public bool IsClass { get; set; }
 	public bool HasSerializableInterface { get; set; }
+
+	public bool HasSerializeContent { get; set; }
+	public bool HasDeserializeContent { get; set; }
 	
 	public ItemModel? CollectionItemType { get; set; }
 

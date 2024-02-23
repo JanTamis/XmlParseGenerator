@@ -40,7 +40,7 @@ public class Program
 	}
 }
 
-[MemoryDiagnoser]
+[MemoryDiagnoser(false)]
 public class TestClass
 {
 	private readonly Test _test = new Test
