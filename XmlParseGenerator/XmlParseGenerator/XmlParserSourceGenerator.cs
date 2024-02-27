@@ -1,10 +1,8 @@
 using System;
 using System.Collections.Generic;
 using System.Linq;
-using System.Text;
 using Microsoft.CodeAnalysis;
 using Microsoft.CodeAnalysis.CSharp.Syntax;
-using Microsoft.CodeAnalysis.Text;
 using XmlParseGenerator.Enumerable;
 using XmlParseGenerator.Models;
 
@@ -55,30 +53,25 @@ public partial class XmlParserSourceGenerator : IIncrementalGenerator
 			? rootAttribute.ConstructorArguments[0].Value.ToString()
 			: type.TypeName;
 
-		var deserializeTextAsync = type.HasSerializableInterface
-			? $"DeserializeXmlSerializable<{type.TypeName}>(reader);"
-			: $"await Deserialize{type.TypeName}Async(reader, 1);";
+		var defaultWriterSettings = type.HasSerializeContent && type.Members.Any()
+			? """
+				private static XmlWriterSettings defaultWriterSettings = new XmlWriterSettings()
+				{
+					Indent = true,
+					CheckCharacters = false,
+				};
+			
+				private static XmlWriterSettings defaultWriterSettingsAsync = new XmlWriterSettings()
+				{
+					Indent = true,
+					CheckCharacters = false,
+					Async = true,
+				};
+			"""
+			: String.Empty;
 
-		var deserializeText = type.HasSerializableInterface
-			? $"DeserializeXmlSerializable<{type.TypeName}>(reader);"
-			: $"Deserialize{type.TypeName}(reader, 1);";
-
-		var serializeTextAsync = type.HasSerializableInterface
-			? $"SerializeXmlSerializable<{type.TypeName}>(writer, value);"
-			: $"await Serialize{type.TypeName}Async(writer, value, \"{rootName}\");";
-
-		var serializeText = type.HasSerializableInterface
-			? $"SerializeXmlSerializable<{type.TypeName}>(writer, value);"
-			: $"Serialize{type.TypeName}Async(writer, value, \"{rootName}\");";
-
-		var code = $$""""
-			{{String.Concat(namespaces)}}
-			namespace {{type.RootNamespace}};
-
-			#nullable enable
-
-			public static class {{type.TypeName}}Serializer
-			{
+		var defaultReaderSettings = type.HasSerializeContent && type.Members.Any()
+			? """
 				private static XmlReaderSettings defaultReaderSettings = new XmlReaderSettings()
 				{
 					IgnoreComments = true,
@@ -97,64 +90,18 @@ public partial class XmlParserSourceGenerator : IIncrementalGenerator
 					DtdProcessing = DtdProcessing.Ignore,
 					Async = true,
 				};
-				
-				private static XmlWriterSettings defaultWriterSettings = new XmlWriterSettings()
-				{
-					Indent = true,
-					CheckCharacters = false,
-				};
-				
-				private static XmlWriterSettings defaultWriterSettingsAsync = new XmlWriterSettings()
-				{
-					Indent = true,
-					CheckCharacters = false,
-					Async = true,
-				};
+			"""
+			: String.Empty;
 
-				{{String.Join("\n\n", GetSerializeMethods(type, rootName)).Replace("\n", "\n\t")}}
+		var code = $$""""
+			{{String.Concat(namespaces)}}
+			namespace {{type.RootNamespace}};
 
-				public static {{type.TypeName}} Deserialize(string value)
-				{
-					var reader = XmlReader.Create(new StringReader(value), defaultReaderSettings);
-					                              
-					while (reader.Read())
-					{
-				    if (reader.Depth != 0 || !reader.IsStartElement())
-				    {
-							continue;
-				    }
-				    
-				    if (reader.Name == "{{rootName}}")
-				    {
-				      return {{deserializeText}}
-				    }
-					}
-					
-					return new {{type.TypeName}}();
-				}
+			#nullable enable
 
-				public static async Task<{{type.TypeName}}> DeserializeAsync(string value)
-				{
-					var reader = XmlReader.Create(new StringReader(value), defaultReaderSettingsAsync);
-					                              
-					while (await reader.ReadAsync())
-					{
-				    if (reader.Depth != 0 || !reader.IsStartElement())
-				    {
-							continue;
-				    }
-				    
-				    if (reader.Name == "{{rootName}}")
-				    {
-				      return {{deserializeTextAsync}}
-				    }
-					}
-					
-					return new {{type.TypeName}}();
-				}
-			
-				{{String.Join("\n\t", serializerTypes.Values)}}
-				{{String.Join("\n\n\t", deserializerTypes.Values)}}
+			public static class {{type.TypeName}}Serializer
+			{
+			{{String.Join("\n\n", ((IEnumerable<string>) [defaultReaderSettings, defaultWriterSettings, ..GetSerializeMethods(type, rootName), ..GetDeserializeMethods(type, rootName), ..serializerTypes.Values.Select(s => '\t' + s), ..deserializerTypes.Values.Select(s => '\t' + s)]).Where(w => !String.IsNullOrWhiteSpace(w)))}}
 			}
 			"""";
 
@@ -206,15 +153,15 @@ public partial class XmlParserSourceGenerator : IIncrementalGenerator
 				{
 					case "ReadXml":
 						result.HasDeserializeContent = member.DeclaringSyntaxReferences
-						.OfType<MethodDeclarationSyntax>()
-						.Any(a => a.Body is { Statements.Count: > 0 } || a.ExpressionBody is not null);
+							.OfType<MethodDeclarationSyntax>()
+							.Any(a => a.Body is { Statements.Count: > 0 } || a.ExpressionBody is not null);
 						break;
 					case "WriteXml":
 						result.HasSerializeContent = member.DeclaringSyntaxReferences
-						.OfType<MethodDeclarationSyntax>()
-						.Any(a => a.Body is { Statements.Count: > 0 } || a.ExpressionBody is not null);
+							.OfType<MethodDeclarationSyntax>()
+							.Any(a => a.Body is { Statements.Count: > 0 } || a.ExpressionBody is not null);
 						break;
-				}	
+				}
 			}
 		}
 
@@ -233,7 +180,6 @@ public partial class XmlParserSourceGenerator : IIncrementalGenerator
 		}
 		else if (namedType.TypeKind == TypeKind.Interface)
 		{
-
 		}
 		else if (namedType is INamedTypeSymbol { TypeArguments.Length: 1 } listType && namedType.AllInterfaces.Any(a => a.Name == "ICollection" && a.ContainingNamespace.ToDisplayString() == "System.Collections.Generic"))
 		{
@@ -244,7 +190,7 @@ public partial class XmlParserSourceGenerator : IIncrementalGenerator
 			result.SpecialType = type.SpecialType;
 			result.IsClass = type.IsReferenceType;
 			result.CollectionItemType = FillItemModel(type, types);
-			
+
 			result.Namespaces.Add(listType.ContainingNamespace.ToDisplayString());
 			result.Namespaces.Add(type.ContainingNamespace.ToDisplayString());
 
@@ -260,6 +206,11 @@ public partial class XmlParserSourceGenerator : IIncrementalGenerator
 		{
 			foreach (var member in namedType.GetMembers())
 			{
+				if (member.GetAttributes().Any(a => a.AttributeClass.ToString() == "System.Xml.Serialization.XmlIgnoreAttribute"))
+				{
+					continue;
+				}
+				
 				MemberModel? memberModel = null;
 
 				switch (member)
@@ -277,6 +228,7 @@ public partial class XmlParserSourceGenerator : IIncrementalGenerator
 							MemberType = MemberType.Property,
 						};
 						break;
+
 					case IFieldSymbol { CanBeReferencedByName: true, IsStatic: false, } field:
 						if (field.Type.ContainingNamespace is not null)
 						{
@@ -301,7 +253,6 @@ public partial class XmlParserSourceGenerator : IIncrementalGenerator
 			}
 		}
 
-		
 
 		return result;
 	}
@@ -329,7 +280,7 @@ public partial class XmlParserSourceGenerator : IIncrementalGenerator
 	private Dictionary<AttributeType, AttributeModel> GetAtributes(ISymbol type)
 	{
 		var result = new Dictionary<AttributeType, AttributeModel>();
-		
+
 		foreach (var attribute in type.GetAttributes())
 		{
 			var fullName = attribute.AttributeClass?.ToDisplayString();
@@ -345,6 +296,7 @@ public partial class XmlParserSourceGenerator : IIncrementalGenerator
 				"System.Xml.Serialization.XmlEnumAttribute"      => AttributeType.Enum,
 				"System.Xml.Serialization.XmlTextAttribute"      => AttributeType.Text,
 				"System.Xml.Serialization.XmlIgnoreAttribute"    => AttributeType.Ignore,
+				"System.ComponentModel.DefaultValueAttribute"    => AttributeType.DefaultValue,
 				_                                                => AttributeType.None,
 			};
 
@@ -364,7 +316,7 @@ public partial class XmlParserSourceGenerator : IIncrementalGenerator
 			{
 				tempAttribute.ConstructorArguments.Add(constructorArgument);
 			}
-			
+
 			result.Add(attributeType, tempAttribute);
 		}
 
@@ -381,247 +333,394 @@ public partial class XmlParserSourceGenerator : IIncrementalGenerator
 			? $"SerializeXmlSerializable<{type.TypeName}>(writer, value);"
 			: $"Serialize{type.TypeName}Async(writer, value, \"{rootName}\");";
 
-		var defaultSerializeName = type.HasSerializeContent
+		var defaultSerializeName = type.HasSerializeContent && type.Members.Any()
 			? "defaultWriterSettings"
 			: "null";
 
 		yield return $$"""
-			public static string Serialize({{type.TypeName}} value)
-			{
-				return Serialize(value, {{defaultSerializeName}});
-			}
+				public static string Serialize({{type.TypeName}} value)
+				{
+					return Serialize(value, {{defaultSerializeName}});
+				}
 			""";
 
-		if (type.HasSerializeContent)
+		if (type.HasSerializeContent && type.Members.Any())
 		{
 			yield return $$"""
-				public static string Serialize({{type.TypeName}} value, XmlWriterSettings? settings)
-				{
-					using var builder = new StringWriter();
+					public static string Serialize({{type.TypeName}} value, XmlWriterSettings? settings)
+					{
+						using var builder = new StringWriter();
+						
+						Serialize(builder, value, settings);
 					
-					Serialize(builder, value, settings);
-				
-					return builder.ToString();
-				}
+						return builder.ToString();
+					}
 				""";
 		}
 		else
 		{
 			yield return $$""""
-				public static string Serialize({{type.TypeName}} value, XmlWriterSettings? settings)
-				{
-					if (settings is { OmitXmlDeclaration: true })
+					public static string Serialize({{type.TypeName}} value, XmlWriterSettings? settings)
 					{
-						return String.Empty;
+						if (settings is { OmitXmlDeclaration: true })
+						{
+							return String.Empty;
+						}
+					
+						return """
+							<?xml version="1.0" encoding="utf-16"?>
+							<{{rootName}} />
+							""";
 					}
-
-					return """
-						<?xml version="1.0" encoding="utf-16"?>
-						""";
-				}
 				"""";
 		}
 
 		yield return $$"""
-			public static void Serialize(TextWriter textWriter, {{type.TypeName}} value)
-			{
-				Serialize(textWriter, value, {{defaultSerializeName}});
-			}
+				public static void Serialize(TextWriter textWriter, {{type.TypeName}} value)
+				{
+					Serialize(textWriter, value, {{defaultSerializeName}});
+				}
 			""";
 
-		if (type.HasSerializeContent)
+		if (type.HasSerializeContent && type.Members.Any())
 		{
 			yield return $$"""
-				public static void Serialize(TextWriter textWriter, {{type.TypeName}} value, XmlWriterSettings? settings)
-				{
-					using var writer = XmlWriter.Create(textWriter, settings);
-				
-					writer.WriteStartDocument();
-					{{serializeText}}
-					writer.WriteEndDocument();
-				
-					writer.Flush();
-				}
+					public static void Serialize(TextWriter textWriter, {{type.TypeName}} value, XmlWriterSettings? settings)
+					{
+						using var writer = XmlWriter.Create(textWriter, settings);
+					
+						writer.WriteStartDocument();
+						{{serializeText}}
+						writer.WriteEndDocument();
+					
+						writer.Flush();
+					}
 				""";
 		}
 		else
 		{
 			yield return $$""""
-				public static void Serialize(TextWriter textWriter, {{type.TypeName}} value, XmlWriterSettings? settings)
-				{
-					if (settings is null || !settings.OmitXmlDeclaration)
+					public static void Serialize(TextWriter textWriter, {{type.TypeName}} value, XmlWriterSettings? settings)
 					{
-						textWriter.Write($"""
-							<?xml version="1.0" encoding="{textWriter.Encoding.WebName}"?>
+						if (settings is null || !settings.OmitXmlDeclaration)
+						{
+							textWriter.Write($"""
+								<?xml version="1.0" encoding="{textWriter.Encoding.WebName}"?>
+								<{{rootName}} />
+								""");
+						}
+					}
+				"""";
+		}
+
+		if (type.HasSerializeContent && type.Members.Any())
+		{
+			yield return $$"""
+					public static void Serialize(Stream stream, {{type.TypeName}} value)
+					{
+						using var writer = new StreamWriter(stream);
+						Serialize(writer, value);
+					}
+				""";
+		}
+		else
+		{
+			yield return $$""""
+					public static void Serialize(Stream stream, {{type.TypeName}} value)
+					{
+						if (stream.CanWrite)
+						{
+							stream.Write("""
+								<?xml version="1.0" encoding="utf-8"?>
+								<{{rootName}} />
+								"""u8);
+						}
+					}
+				"""";
+		}
+
+		if (type.HasSerializeContent && type.Members.Any())
+		{
+			yield return $$"""
+					public static void Serialize(Stream stream, {{type.TypeName}} value, XmlWriterSettings? settings)
+					{
+						using var writer = XmlWriter.Create(stream, settings);
+					
+						writer.WriteStartDocument();
+						{{serializeText}}
+						writer.WriteEndDocument();
+					}
+				""";
+		}
+		else
+		{
+			yield return $$""""
+					public static void Serialize(Stream stream, {{type.TypeName}} value, XmlWriterSettings? settings)
+					{
+						if (stream.CanWrite && (settings is null || !settings.OmitXmlDeclaration))
+						{
+							stream.Write("""
+								<?xml version="1.0" encoding="utf-8"?>
+								<{{rootName}} />
+								"""u8);
+						}
+					}
+				"""";
+		}
+
+		if (type.HasSerializeContent && type.Members.Any())
+		{
+			yield return $$"""
+					public static async Task<string> SerializeAsync({{type.TypeName}} value)
+					{
+						return await SerializeAsync(value, defaultWriterSettings);
+					}
+				""";
+		}
+		else
+		{
+			yield return $$""""
+					public static Task<string> SerializeAsync({{type.TypeName}} value)
+					{
+						return Task.FromResult("""
+							<?xml version="1.0" encoding="utf-16"?>
+							<{{rootName}} />
 							""");
 					}
-				}
 				"""";
 		}
 
-		if (type.HasSerializeContent)
+		if (type.HasSerializeContent && type.Members.Any())
 		{
 			yield return $$"""
-				public static void Serialize(Stream stream, {{type.TypeName}} value)
-				{
-					using var writer = new StreamWriter(stream);
-					Serialize(writer, value);
-				}
+					public static async Task<string> SerializeAsync({{type.TypeName}} value, XmlWriterSettings? settings)
+					{
+						if (settings is null)
+						{
+							settings = defaultWriterSettingsAsync;
+						}
+						
+						settings.Async = true;
+					
+						using var builder = new StringWriter();
+						
+						await SerializeAsync(builder, value, settings);
+					
+						return builder.ToString();
+					}
 				""";
 		}
 		else
 		{
 			yield return $$""""
-				public static void Serialize(Stream stream, {{type.TypeName}} value)
-				{
-					if (stream.CanWrite)
+					public static Task<string> SerializeAsync({{type.TypeName}} value, XmlWriterSettings? settings)
 					{
-						stream.Write("""
-							<?xml version="1.0" encoding="utf-8"?>
-							"""u8);
+						if (settings is { OmitXmlDeclaration: true })
+						{
+							return Task.FromResult(String.Empty);
+						}
+					
+						return Task.FromResult("""
+							<?xml version="1.0" encoding="utf-16"?>
+							<{{rootName}} />
+							""");
+					}
+				"""";
+		}
+
+		yield return $$"""
+				public static async Task SerializeAsync(TextWriter textWriter, {{type.TypeName}} value)
+				{
+					await SerializeAsync(textWriter, value, {{defaultSerializeName}});
+				}
+			""";
+
+		if (type.HasSerializeContent && type.Members.Any())
+		{
+			yield return $$"""
+					public static async Task SerializeAsync(TextWriter textWriter, {{type.TypeName}} value, XmlWriterSettings? settings)
+					{
+						if (settings is null)
+						{
+							settings = defaultWriterSettingsAsync;
+						}
+							
+						settings.Async = true;
+						
+						await using var writer = XmlWriter.Create(textWriter, settings);
+						
+						await writer.WriteStartDocumentAsync();
+						{{serializeTextAsync}}
+						await writer.WriteEndDocumentAsync();
+						
+						await writer.FlushAsync();
+					}
+				""";
+		}
+		else
+		{
+			yield return $$""""
+					public static async Task SerializeAsync(TextWriter textWriter, {{type.TypeName}} value, XmlWriterSettings? settings)
+					{
+						if (settings is null || !settings.OmitXmlDeclaration)
+						{
+							await textWriter.WriteAsync($"""
+								<?xml version="1.0" encoding="{textWriter.Encoding.WebName}"?>
+								<{{rootName}} />
+								""");
+						}
+					}
+				"""";
+		}
+
+
+		yield return $$"""
+				public static async Task SerializeAsync(Stream stream, {{type.TypeName}} value)
+				{
+					await SerializeAsync(stream, value, {{defaultSerializeName}});
+				}
+			""";
+
+		if (type.HasSerializeContent && type.Members.Any())
+		{
+			yield return $$"""
+					public static async Task SerializeAsync(Stream stream, {{type.TypeName}} value, XmlWriterSettings? settings)
+					{
+						if (settings is null)
+						{
+							settings = defaultWriterSettingsAsync;
+						}
+							
+						settings.Async = true;
+					
+						await using var writer = XmlWriter.Create(stream, settings);
+					
+						await writer.WriteStartDocumentAsync();
+						{{serializeTextAsync}}
+						await writer.WriteEndDocumentAsync();
+					
+						await writer.FlushAsync();
+					}
+				""";
+		}
+		else
+		{
+			yield return $$""""
+					public static async Task SerializeAsync(Stream stream, {{type.TypeName}} value, XmlWriterSettings? settings)
+					{
+						if (stream.CanWrite && (settings is null || !settings.OmitXmlDeclaration))
+						{
+							await stream.WriteAsync("""
+								<?xml version="1.0" encoding="utf-8"?>
+								<{{rootName}} />
+								"""u8.ToArray());
+						}
+					}
+				"""";
+		}
+	}
+
+	private IEnumerable<string> GetDeserializeMethods(ItemModel type, string rootName)
+	{
+		var deserializeTextAsync = type.HasSerializableInterface
+			? $"DeserializeXmlSerializable<{type.TypeName}>(reader);"
+			: $"await Deserialize{type.TypeName}Async(reader, 1);";
+
+		var deserializeText = type.HasSerializableInterface
+			? $"DeserializeXmlSerializable<{type.TypeName}>(reader);"
+			: $"Deserialize{type.TypeName}(reader, 1);";
+
+		if (type.HasDeserializeContent && type.Members.Any())
+		{
+			yield return $$"""
+					public static {{type.TypeName}} Deserialize(string value)
+					{
+						var reader = XmlReader.Create(new StringReader(value), defaultReaderSettings);
+						                              
+						while (reader.Read())
+						{
+					    if (reader.Depth == 0 && reader.IsStartElement() && reader.Name == "{{rootName}}")
+							{
+							  return {{deserializeText}}
+							}
+						}
+						
+						return new {{type.TypeName}}();
+					}
+				""";
+		}
+		else
+		{
+			yield return $$"""
+					public static {{type.TypeName}} Deserialize(string value)
+					{
+						return new {{type.TypeName}}();
+					}
+				""";
+		}
+
+		if (type.HasDeserializeContent && type.Members.Any())
+		{
+			yield return $$"""
+					public static async Task<{{type.TypeName}}> DeserializeAsync(string value)
+					{
+						var reader = XmlReader.Create(new StringReader(value), defaultReaderSettingsAsync);
+						                              
+						while (await reader.ReadAsync())
+						{
+					    if (reader.Depth == 0 && reader.IsStartElement() && reader.Name == "{{rootName}}")
+					    {
+					      return {{deserializeTextAsync}}
+					    }
+						}
+						
+						return new {{type.TypeName}}();
+					}
+				""";
+		}
+		else
+		{
+			yield return $$"""
+					public static Task<{{type.TypeName}}> DeserializeAsync(string value)
+					{
+						return Task.FromResult(new {{type.TypeName}}());
+					}
+				""";
+		}
+	}
+
+	private void AppendSwitch(string name, List<KeyValuePair<string, string>> statements, IndentedStringBuilder builder)
+	{
+		switch (statements.Count)
+		{
+			case 0:
+				break;
+			case 1:
+			{
+				using (builder.IndentBlock($"if ({name} == {statements[0].Key})"))
+				{
+					builder.AppendLine(statements[0].Value);
+				}
+
+				break;
+			}
+
+			default:
+			{
+				using (builder.IndentBlock($"switch ({name})"))
+				{
+					foreach (var statement in statements)
+					{
+						using (builder.IndentScope($"case {statement.Key}:"))
+						{
+							builder.AppendLine(statement.Value);
+							builder.AppendLine("break;");
+						}
 					}
 				}
-				"""";
-		}
 
-		if (type.HasSerializeContent)
-		{
-			yield return $$"""
-				public static void Serialize(Stream stream, {{type.TypeName}} value, XmlWriterSettings? settings)
-				{
-					using var writer = XmlWriter.Create(stream, settings);
-				
-					writer.WriteStartDocument();
-					{{serializeText}}
-					writer.WriteEndDocument();
-				}
-				""";
-		}
-		else
-		{
-			yield return $$""""
-				public static void Serialize(Stream stream, {{type.TypeName}} value, XmlWriterSettings? settings)
-				{
-					if (stream.CanWrite && (settings is null || !settings.OmitXmlDeclaration))
-					{
-						stream.Write("""
-							<?xml version="1.0" encoding="utf-8"?>
-							"""u8);
-					}
-				}
-				"""";
-		}
-
-		if (type.HasSerializeContent)
-		{
-			yield return $$"""
-				public static async Task<string> SerializeAsync({{type.TypeName}} value)
-				{
-					return await SerializeAsync(value, defaultWriterSettings);
-				}
-				""";
-		}
-		else
-		{
-			yield return $$""""
-				public static Task<string> SerializeAsync({{type.TypeName}} value)
-				{
-					return Task.FromResult("""
-						<?xml version="1.0" encoding="utf-16"?>
-						""");
-				}
-				"""";
-		}
-
-		if (type.HasSerializeContent)
-		{
-			yield return $$"""
-				public static async Task<string> SerializeAsync({{type.TypeName}} value, XmlWriterSettings? settings)
-				{
-					if (settings is null)
-					{
-						settings = defaultWriterSettingsAsync;
-					}
-					
-					settings.Async = true;
-				
-					using var builder = new StringWriter();
-					
-					await SerializeAsync(builder, value, settings);
-				
-					return builder.ToString();
-				}
-				""";
-		}
-		else
-		{
-			yield return $$""""
-			public static Task<string> SerializeAsync({{type.TypeName}} value, XmlWriterSettings? settings)
-			{
-				if (settings is { OmitXmlDeclaration: true })
-				{
-					return Task.FromResult(String.Empty);
-				}
-
-				return Task.FromResult("""
-					<?xml version="1.0" encoding="utf-16"?>
-					""");
+				break;
 			}
-			"""";
 		}
-		
-		yield return $$"""
-			public static async Task SerializeAsync(TextWriter textWriter, {{type.TypeName}} value)
-			{
-				await SerializeAsync(textWriter, value, defaultWriterSettings);
-			}
-			""";
-
-		yield return $$"""
-			public static async Task SerializeAsync(TextWriter textWriter, {{type.TypeName}} value, XmlWriterSettings? settings)
-			{
-				if (settings is null)
-				{
-					settings = defaultWriterSettingsAsync;
-				}
-					
-				settings.Async = true;
-				
-				await using var writer = XmlWriter.Create(textWriter, settings);
-				
-				await writer.WriteStartDocumentAsync();
-				{{serializeTextAsync}}
-				await writer.WriteEndDocumentAsync();
-				
-				await writer.FlushAsync();
-			}
-			""";
-
-		yield return $$"""
-			public static async Task SerializeAsync(Stream stream, {{type.TypeName}} value)
-			{
-				await SerializeAsync(stream, value, defaultWriterSettings);
-			}
-			""";
-
-		yield return $$"""
-			public static async Task SerializeAsync(Stream stream, {{type.TypeName}} value, XmlWriterSettings? settings)
-			{
-				if (settings is null)
-				{
-					settings = defaultWriterSettingsAsync;
-				}
-					
-				settings.Async = true;
-			
-				await using var writer = XmlWriter.Create(stream, settings);
-			
-				await writer.WriteStartDocumentAsync();
-				{{serializeTextAsync}}
-				await writer.WriteEndDocumentAsync();
-			
-				await writer.FlushAsync();
-			}
-			""";
 	}
 }

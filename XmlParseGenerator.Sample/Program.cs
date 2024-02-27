@@ -1,5 +1,4 @@
-﻿using System;
-using System.IO;
+﻿using System.IO;
 using System.Threading.Tasks;
 using System.Xml.Serialization;
 using BenchmarkDotNet.Attributes;
@@ -12,28 +11,28 @@ public class Program
 	{
 		var model = new Test
 		{
-			FirstName = "Jan Tamis",
-			LastName = "Kossen",
+			FirstName = "test",
+			LastName = "test",
 			Age = 26,
 			Children =
 			[
 				new Test
 				{
-					FirstName = "Marry Nel",
-					LastName = "Kossen",
+					FirstName = "test",
+					LastName = "test",
 					Age = 28,
 				},
 				new Test
 				{
-					FirstName = "Marry Nel",
-					LastName = "Kossen",
+					FirstName = "test",
+					LastName = "test",
 					Age = 28,
 				},
 			]
 		};
-		
-		var result = await TestSerializer.SerializeAsync(model);
 
+		var result = await TestSerializer.SerializeAsync(model);
+		
 		var resultObject = await TestSerializer.DeserializeAsync(result);
 
 		BenchmarkRunner.Run<TestClass>();
@@ -45,48 +44,18 @@ public class TestClass
 {
 	private readonly Test _test = new Test
 	{
-		FirstName = "Jan Tamis",
-		LastName = "Kossen",
+		FirstName = "test",
+		LastName = "test",
 		Age = 26,
-		Children =
-		[
-			new Test
-			{
-				FirstName = "Marry Nel",
-				LastName = "Kossen",
-				Age = 28,
-			},
-			new Test
-			{
-				FirstName = "Marry Nel",
-				LastName = "Kossen",
-				Age = 28,
-			},
-			new Test
-			{
-				FirstName = "Marry Nel",
-				LastName = "Kossen",
-				Age = 28,
-			},
-			new Test
-			{
-				FirstName = "Marry Nel",
-				LastName = "Kossen",
-				Age = 28,
-			},
-			new Test
-			{
-				FirstName = "Marry Nel",
-				LastName = "Kossen",
-				Age = 28,
-			},
-			new Test
-			{
-				FirstName = "Marry Nel",
-				LastName = "Kossen",
-				Age = 28,
-			},
-		]
+		// Children = Enumerable
+		// 	.Range(0, 1_000)
+		// 	.Select(s => new Test
+		// 	{
+		// 		FirstName = "test",
+		// 		LastName = "test",
+		// 		Age = s,
+		// 	})
+		// 	.ToList(),
 	};
 
 	private readonly string _toDeserialize;
@@ -95,7 +64,9 @@ public class TestClass
 
 	public TestClass()
 	{
-		_toDeserialize = TestSerializer.Serialize(_test);
+		var writer = new StringWriter();
+		_serializer.Serialize(writer, _test);
+		_toDeserialize = writer.ToString();
 	}
 
 	[Benchmark]
@@ -106,7 +77,7 @@ public class TestClass
 		return _serializer.Deserialize(builder) as Test;
 	}
 
-	[Benchmark]
+	// [Benchmark]
 	public Test DefaultSlow()
 	{
 		var serializer = new XmlSerializer(typeof(Test));

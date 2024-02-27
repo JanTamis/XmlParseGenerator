@@ -3,23 +3,15 @@ using System.Text;
 
 namespace XmlParseGenerator;
 
-public class IndentedStringBuilder
+public class IndentedStringBuilder(string defaultIndent, string indent)
 {
 	private int _indentLevel;
 	private readonly StringBuilder _builder = new();
-	private readonly string _defaultIndent;
-	private readonly string _indent;
-
-	public IndentedStringBuilder(string defaultIndent, string indent)
-	{
-		_defaultIndent = defaultIndent;
-		_indent = indent;
-	}
 
 	public void AppendLine(string value)
 	{
 		DoIndent();
-		_builder.AppendLine(value.Replace("\n", "\n" + new string('\t', _indentLevel)));
+		_builder.AppendLine(value.Replace("\n", "\n" + new string('\t', _indentLevel + 1)));
 	}
 
 	public void AppendLine()
@@ -30,7 +22,7 @@ public class IndentedStringBuilder
 
 	public void AppendLineWithoutIndent(string value)
 	{
-		_builder.AppendLine(value.Replace("\n", "\n" + new string('\t', _indentLevel)));
+		_builder.AppendLine(value.Replace("\n", "\n" + new string('\t', _indentLevel + 1)));
 	}
 
 	public void Append(string value)
@@ -94,11 +86,11 @@ public class IndentedStringBuilder
 
 	private void DoIndent()
 	{
-		_builder.Append(_defaultIndent);
+		_builder.Append(defaultIndent);
 
 		for (var i = 0; i < _indentLevel; i++)
 		{
-			_builder.Append(_indent);
+			_builder.Append(indent);
 		}
 	}
 	

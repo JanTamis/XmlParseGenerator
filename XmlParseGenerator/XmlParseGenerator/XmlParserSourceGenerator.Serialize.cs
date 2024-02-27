@@ -11,22 +11,25 @@ public partial class XmlParserSourceGenerator
 {
 	private void CreateSerializeForType(Dictionary<string, string> result, ItemModel? type)
 	{
-		if (type is null || result.ContainsKey(type.TypeName) || !IsValidType(type.SpecialType) || type.CollectionType != CollectionType.None)
+		if (type is null || result.ContainsKey(type.TypeName) || !IsValidType(type.SpecialType) || type.CollectionType != CollectionType.None || !type.Members.Any())
 		{
 			return;
 		}
 
 		if (type.HasSerializableInterface)
 		{
-			var builder = new IndentedStringBuilder("\t", "\t");
-
-			builder.AppendLineWithoutIndent("private static void SerializeXmlSerializable<T>(XmlWriter writer, T item) where T : IXmlSerializable");
-			using (builder.IndentBlock())
+			if (type.HasSerializeContent)
 			{
-				builder.AppendLine("item.WriteXml(writer);");
-			}
+				var builder = new IndentedStringBuilder("\t", "\t");
 
-			result.Add("IXmlSerializable", builder.ToString());
+				builder.AppendLineWithoutIndent("private static void SerializeXmlSerializable<T>(XmlWriter writer, T item) where T : IXmlSerializable");
+				using (builder.IndentBlockNoNewline())
+				{
+					builder.AppendLine("item.WriteXml(writer);");
+				}
+
+				result.Add("IXmlSerializable", builder.ToString());
+			}
 		}
 		else
 		{
@@ -40,6 +43,30 @@ public partial class XmlParserSourceGenerator
 					CreateSerializeForType(result, member?.Type);
 				}
 			}
+		}
+
+		if (type.Members.Any() && !result.ContainsKey("#WriteElement"))
+		{
+			result.Add("#WriteElement", """
+				private static void WriteElement<T>(XmlWriter writer, string elementName, T value)
+					{
+						writer.WriteStartElement(null, elementName, null);
+						writer.WriteString(value.ToString());
+						writer.WriteEndElement();
+					}
+				""");
+		}
+		
+		if (type.Members.Any() && !result.ContainsKey("#WriteElementAsync"))
+		{
+			result.Add("#WriteElementAsync", """
+				private static async Task WriteElementAsync<T>(XmlWriter writer, string elementName, T value)
+					{
+						await writer.WriteStartElementAsync(null, elementName, null);
+						await writer.WriteStringAsync(value.ToString());
+						await writer.WriteEndElementAsync();
+					}
+				""");
 		}
 	}
 
@@ -59,7 +86,7 @@ public partial class XmlParserSourceGenerator
 		var builder = new IndentedStringBuilder("\t", "\t");
 
 		builder.AppendLineWithoutIndent($"private static {async} Serialize{type.TypeName}{asyncSuffix}(XmlWriter writer, {type.TypeName} item, string rootName)");
-		using (_ = builder.IndentBlock())
+		using (_ = builder.IndentBlockNoNewline())
 		{
 			if (type.HasSerializableInterface)
 			{
@@ -124,6 +151,7 @@ public partial class XmlParserSourceGenerator
 
 						if (element.Type.IsClass)
 						{
+							builder.AppendLine();
 							builder.AppendLine($"if (item.{element.Name} != null)");
 							builder.AppendLine("{");
 							builder.Indent();
@@ -164,19 +192,23 @@ public partial class XmlParserSourceGenerator
 					}
 					else
 					{
-						builder.AppendLine($"{asyncKeyword}writer.WriteStartElement{asyncSuffix}(null, \"{name}\", null);");
-
-						if (element.Type.SpecialType == SpecialType.System_String)
+						if (element.Type.IsClass && element.Attributes.TryGetValue(AttributeType.DefaultValue, out var defaultValueAttribute))
 						{
-							builder.AppendLine($"{asyncKeyword}writer.WriteString{asyncSuffix}({elementName}.{element.Name});");
+							if (element.Type.SpecialType == SpecialType.System_String)
+							{
+								builder.AppendLine($"{asyncKeyword}WriteElement{asyncSuffix}(writer, \"{name}\", {elementName}.{element.Name} ?? \"{defaultValueAttribute.ConstructorArguments[0].Value}\");");								
+							}
+							else
+							{
+								builder.AppendLine($"{asyncKeyword}WriteElement{asyncSuffix}(writer, \"{name}\", {elementName}.{element.Name} ?? {defaultValueAttribute.ConstructorArguments[0].Value});");
+							}
 						}
 						else
 						{
-							builder.AppendLine($"{asyncKeyword}writer.WriteString{asyncSuffix}(XmlConvert.ToString({elementName}.{element.Name}));");
+							builder.AppendLine($"{asyncKeyword}WriteElement{asyncSuffix}(writer, \"{name}\", {elementName}.{element.Name});");							
 						}
-
-						builder.AppendLine($"{asyncKeyword}writer.WriteEndElement{asyncSuffix}();");
-						builder.AppendLine();
+						
+						
 					}
 
 					if (element.Type.CollectionType != CollectionType.None)

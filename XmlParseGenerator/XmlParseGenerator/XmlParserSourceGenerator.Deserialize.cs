@@ -11,26 +11,29 @@ public partial class XmlParserSourceGenerator
 {
 	private void CreateDeserializeForType(Dictionary<string, string> result, ItemModel? type)
 	{
-		if (type is null || result.ContainsKey(type.TypeName) || type.SpecialType != SpecialType.None)
+		if (type is null || result.ContainsKey(type.TypeName) || type.SpecialType != SpecialType.None || !type.Members.Any())
 		{
 			return;
 		}
 
 		if (type.HasSerializableInterface)
 		{
-			var builder = new IndentedStringBuilder("\t", "\t");
-
-			builder.AppendLineWithoutIndent("private static T DeserializeXmlSerializable<T>(XmlReader reader) where T : IXmlSerializable, new()");
-			using (builder.IndentBlockNoNewline())
+			if (type.HasDeserializeContent)
 			{
-				builder.AppendLine("var result = new T();");
-				builder.AppendLine();
-				builder.AppendLine("result.ReadXml(reader);");
-				builder.AppendLine();
-				builder.AppendLine("return result;");
-			}
+				var builder = new IndentedStringBuilder("\t", "\t");
 
-			result.Add("IXmlSerializable", builder.ToString());
+				builder.AppendLineWithoutIndent("private static T DeserializeXmlSerializable<T>(XmlReader reader) where T : IXmlSerializable, new()");
+				using (builder.IndentBlockNoNewline())
+				{
+					builder.AppendLine("var result = new T();");
+					builder.AppendLine();
+					builder.AppendLine("result.ReadXml(reader);");
+					builder.AppendLine();
+					builder.AppendLine("return result;");
+				}
+
+				result.Add("IXmlSerializable", builder.ToString());
+			}
 		}
 		else
 		{
@@ -42,13 +45,13 @@ public partial class XmlParserSourceGenerator
 				result.Add($"{type.TypeName}{type.CollectionName}", type.CollectionType switch
 				{
 					CollectionType.Collection => CreateDeserializeForTypeCollection(type, false),
-					CollectionType.Array => CreateDeserializeForTypeArray(type, false),
+					CollectionType.Array      => CreateDeserializeForTypeArray(type, false),
 				});
 
 				result.Add($"{type.TypeName}{type.CollectionName}Async", type.CollectionType switch
 				{
 					CollectionType.Collection => CreateDeserializeForTypeCollection(type, true),
-					CollectionType.Array => CreateDeserializeForTypeArray(type, true),
+					CollectionType.Array      => CreateDeserializeForTypeArray(type, true),
 				});
 			}
 
@@ -61,13 +64,13 @@ public partial class XmlParserSourceGenerator
 						result.Add($"{member.Type.TypeName}{member.Type.CollectionName}", member.Type.CollectionType switch
 						{
 							CollectionType.Collection => CreateDeserializeForTypeCollection(member.Type, false),
-							CollectionType.Array => CreateDeserializeForTypeArray(member.Type, false),
+							CollectionType.Array      => CreateDeserializeForTypeArray(member.Type, false),
 						});
 
 						result.Add($"{member.Type.TypeName}{member.Type.CollectionName}Async", member.Type.CollectionType switch
 						{
 							CollectionType.Collection => CreateDeserializeForTypeCollection(member.Type, true),
-							CollectionType.Array => CreateDeserializeForTypeArray(member.Type, true),
+							CollectionType.Array      => CreateDeserializeForTypeArray(member.Type, true),
 						});
 					}
 				}
@@ -97,128 +100,156 @@ public partial class XmlParserSourceGenerator
 		builder.AppendLineWithoutIndent($"private static {async} Deserialize{type.TypeName}{asyncSuffix}(XmlReader reader, int depth)");
 		using (builder.IndentBlockNoNewline())
 		{
-			builder.AppendLine($"var result = new {type.TypeName}();");
-			builder.AppendLine();
-
-			if (type.HasSerializableInterface)
+			if (type.Members.Count == 0)
 			{
-				builder.AppendLine("result.ReadXml(reader);");
+				builder.AppendLine(type.HasSerializableInterface && isAsync
+					? $"return Task.FromResult(new {type.TypeName}());"
+					: $"return new {type.TypeName}();");
 			}
 			else
 			{
-				if (type.Members.Any(a => a.Attributes.ContainsKey(AttributeType.Attribute)))
-				{
-					using (builder.IndentBlock("if (reader.HasAttributes)"))
+				var defaultValues = type.Members
+					.Where(w => w.Attributes.ContainsKey(AttributeType.DefaultValue))
+					.Select(s =>
 					{
-						using (builder.IndentBlock("while (reader.MoveToNextAttribute())"))
+						if (s.Type.SpecialType == SpecialType.System_String)
 						{
-							using (builder.IndentBlock("switch (reader.Name)"))
-							{
-								foreach (var member in type.Members)
-								{
-									if (member.Attributes.TryGetValue(AttributeType.Attribute, out var attributeModel))
-									{
-										using (builder.IndentScope($"case \"{attributeModel.ConstructorArguments[0].Value}\":"))
-										{
-											if (member.Type.SpecialType == SpecialType.System_String)
-											{
-												builder.AppendLine($"result.{member.Name} = reader.Value;");
-											}
-											else
-											{
-												builder.AppendLine($"result.{member.Name} = XmlConvert.To{member.Type.TypeName}(reader.Value);");
-											}
-											builder.AppendLine("break;");
-										}
-									}
-								}
-							}
+							return $"{s.Name} = \"{s.Attributes[AttributeType.DefaultValue].ConstructorArguments[0].Value}\",";
+						}
+
+						return $"{s.Name} = {s.Attributes[AttributeType.DefaultValue].ConstructorArguments[0].Value},";
+					})
+					.ToList();
+
+				if (defaultValues.Any())
+				{
+					using (builder.IndentBlockNoNewline($"var result = new {type.TypeName}"))
+					{
+						foreach (var defaultValue in defaultValues)
+						{
+							builder.AppendLine(defaultValue);
 						}
 					}
 
-					builder.AppendLine();
+					builder.AppendLineWithoutIndent(";");
+				}
+				else
+				{
+					builder.AppendLine($"var result = new {type.TypeName}();");
 				}
 
-				using (builder.IndentBlock($"while ({asyncKeyword}reader.Read{asyncSuffix}())"))
+				builder.AppendLine();
+
+				if (type.HasSerializableInterface)
 				{
-					using (builder.IndentScope("if (reader.Depth != depth || !reader.IsStartElement() || reader.IsEmptyElement)"))
+					builder.AppendLine("result.ReadXml(reader);");
+				}
+				else
+				{
+					if (type.Members.Any(a => a.Attributes.ContainsKey(AttributeType.Attribute)))
 					{
-						builder.AppendLine("break;");
-					}
-
-					builder.AppendLine();
-					using (builder.IndentBlock("switch (reader.Name)"))
-					{
-						foreach (var element in type.Members.Where(w => !w.Attributes.ContainsKey(AttributeType.Attribute)))
+						using (builder.IndentBlock("if (reader.HasAttributes)"))
 						{
-							var name = element.Name;
-
-							if (element.Attributes.TryGetValue(AttributeType.Element, out var attribute))
+							using (builder.IndentBlock("while (reader.MoveToNextAttribute())"))
 							{
-								name = attribute.ConstructorArguments[0].Value.ToString();
-							}
-
-							if (element.Type.CollectionType != CollectionType.None && element.Attributes.TryGetValue(AttributeType.Array, out var arrayAttribute))
-							{
-								name = arrayAttribute.ConstructorArguments[0].Value.ToString();
-							}
-
-							using (builder.IndentScope($"case \"{name}\":"))
-							{
-								if (!IsValidType(element.Type.SpecialType))
-								{
-									builder.AppendLine($"{asyncKeyword}reader.Read{asyncSuffix}();");
-
-									if (element.Type.SpecialType == SpecialType.System_String)
+								AppendSwitch("reader.Name", type.Members
+									.Where(w => w.Attributes.ContainsKey(AttributeType.Attribute))
+									.Select(s =>
 									{
-										builder.AppendLine($"result.{element.Name} = reader.Value;");
-									}
-									else
-									{
-										builder.AppendLine($"result.{element.Name} = XmlConvert.To{element.Type.TypeName}(reader.Value);");
-									}
-								}
-								else
-								{
-									if (element.Type.CollectionType != CollectionType.None)
-									{
-										var elementName = element.Type.TypeName;
-
-										if (element.Attributes.TryGetValue(AttributeType.ArrayItem, out var arrayItemAttribute) && arrayItemAttribute.NamedParameters.TryGetValue("ElementName", out var result))
+										if (s.Attributes.TryGetValue(AttributeType.Attribute, out var attributeModel))
 										{
-											elementName = result.Value.ToString();
+											if (s.Type.SpecialType == SpecialType.System_String)
+											{
+												return new KeyValuePair<string, string>($"\"{attributeModel.ConstructorArguments[0].Value}\"", $"result.{s.Name} = reader.Value;");
+											}
+
+											return new KeyValuePair<string, string>($"\"{attributeModel.ConstructorArguments[0].Value}\"", $"result.{s.Name} = XmlConvert.To{s.Type.TypeName}(reader.Value);");
 										}
 
-										builder.AppendLine($"result.{element.Name} = {asyncKeyword}Deserialize{element.Type.CollectionItemType.TypeName}{element.Type.TypeName}{asyncSuffix}(reader, depth + 1, \"{elementName}\");");
-									}
-									else
-									{
-										builder.AppendLine($"result.{element.Name} = {asyncKeyword}Deserialize{element.Type.TypeName}{asyncSuffix}(reader, depth + 1);");
-									}
-								}
-
-								// builder.AppendLine($"{asyncKeyword}reader.Skip{asyncSuffix}();");
-								builder.AppendLine("break;");
+										return default;
+									}).ToList(), builder);
 							}
 						}
 
-						// using (builder.IndentScope("default:"))
-						// {
-						// 	builder.AppendLine($"{asyncKeyword}reader.Skip{asyncSuffix}();");
-						// 	builder.AppendLine("break;");
-						// }
+						builder.AppendLine();
 					}
 
-					builder.AppendLine();
-					builder.AppendLine($"{asyncKeyword}reader.Skip{asyncSuffix}();");
+					using (builder.IndentBlock($"while ({asyncKeyword}reader.Read{asyncSuffix}())"))
+					{
+						using (builder.IndentScope("if (reader.Depth != depth || !reader.IsStartElement() || reader.IsEmptyElement)"))
+						{
+							builder.AppendLine("break;");
+						}
+
+						builder.AppendLine();
+
+						builder.AppendLine("var name = reader.Name;");
+						builder.AppendLine($"{asyncKeyword}reader.Read{asyncSuffix}();");
+						builder.AppendLine();
+
+						AppendSwitch("name", type.Members
+							.Where(w => !w.Attributes.ContainsKey(AttributeType.Attribute))
+							.Select(s =>
+							{
+								var name = s.Name;
+
+								if (s.Attributes.TryGetValue(AttributeType.Element, out var attribute))
+								{
+									name = attribute.ConstructorArguments[0].Value.ToString();
+								}
+
+								if (s.Type.CollectionType != CollectionType.None && s.Attributes.TryGetValue(AttributeType.Array, out var arrayAttribute))
+								{
+									name = arrayAttribute.ConstructorArguments[0].Value.ToString();
+								}
+
+								name = $"\"{name}\"";
+
+								if (!IsValidType(s.Type.SpecialType))
+								{
+									if (s.Type.SpecialType == SpecialType.System_String)
+									{
+										return new KeyValuePair<string, string>(name, $"""
+											result.{s.Name} = reader.Value;
+											""");
+									}
+
+									return new KeyValuePair<string, string>(name, $"""
+										result.{s.Name} = XmlConvert.To{s.Type.TypeName}(reader.Value);
+										""");
+								}
+
+								if (s.Type.CollectionType != CollectionType.None)
+								{
+									var elementName = s.Type.TypeName;
+
+									if (s.Attributes.TryGetValue(AttributeType.ArrayItem, out var arrayItemAttribute) && arrayItemAttribute.NamedParameters.TryGetValue("ElementName", out var result))
+									{
+										elementName = result.Value.ToString();
+									}
+
+									return new KeyValuePair<string, string>(name, $"""
+										result.{s.Name} = {asyncKeyword}Deserialize{s.Type.CollectionItemType.TypeName}{s.Type.TypeName}{asyncSuffix}(reader, depth + 1, "{elementName}");
+										""");
+								}
+
+								return new KeyValuePair<string, string>(name, $"""
+									result.{s.Name} = {asyncKeyword}Deserialize{s.Type.TypeName}{asyncSuffix}(reader, depth + 1);
+									""");
+							})
+							.ToList(), builder);
+
+						builder.AppendLine();
+						builder.AppendLine($"{asyncKeyword}reader.Skip{asyncSuffix}();");
+					}
 				}
+
+				builder.AppendLine();
+
+				builder.AppendLine(type.HasSerializableInterface && isAsync
+					? "return Task.FromResult(result);"
+					: "return result;");
 			}
-
-			builder.AppendLine();
-
-			builder.AppendLine(type.HasSerializableInterface && isAsync
-				? "return Task.FromResult(result);"
-				: "return result;");
 		}
 
 		return builder.ToString();

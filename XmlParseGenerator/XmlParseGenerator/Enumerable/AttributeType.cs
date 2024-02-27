@@ -11,5 +11,6 @@ public enum AttributeType
 	ArrayItem,
 	Text,
 	Enum,
-	Ignore
+	Ignore,
+	DefaultValue,
 }

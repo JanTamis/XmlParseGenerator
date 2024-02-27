@@ -100,19 +100,15 @@ public partial class XmlParserSourceGenerator
 		{
 			initialize(builder);
 			builder.AppendLine();
-			using (builder.IndentBlock($"while ({asyncKeyword}reader.Read{asyncSuffix}())"))
+			using (builder.IndentBlockNoNewline("do"))
 			{
-				using (builder.IndentScope("if (reader.Depth != depth || !reader.IsStartElement())"))
-				{
-					builder.AppendLine("continue;");
-				}
-				builder.AppendLine();
-				
-				using (builder.IndentBlock($"if (reader.Name == elementName)"))
+				using (builder.IndentBlock($"if (reader.Depth == depth && reader.IsStartElement() && reader.Name == elementName)"))
 				{
 					body(builder);
 				}
 			}
+			builder.AppendLineWithoutIndent($" while ({asyncKeyword}reader.Read{asyncSuffix}());");
+			
 			builder.AppendLine();
 			returnStatement(builder);
 		}
