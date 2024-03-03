@@ -114,10 +114,10 @@ public partial class XmlParserSourceGenerator
 					{
 						if (s.Type.SpecialType == SpecialType.System_String)
 						{
-							return $"{s.Name} = \"{s.Attributes[AttributeType.DefaultValue].ConstructorArguments[0].Value}\",";
+							return $"{s.Name} = \"{s.Attributes[AttributeType.DefaultValue][0].ConstructorArguments[0].Value}\",";
 						}
 
-						return $"{s.Name} = {s.Attributes[AttributeType.DefaultValue].ConstructorArguments[0].Value},";
+						return $"{s.Name} = {s.Attributes[AttributeType.DefaultValue][0].ConstructorArguments[0].Value},";
 					})
 					.ToList();
 
@@ -152,7 +152,7 @@ public partial class XmlParserSourceGenerator
 						{
 							using (builder.IndentBlock("while (reader.MoveToNextAttribute())"))
 							{
-								AppendSwitch("reader.Name", type.Members
+								AppendSwitchStatement(builder, "reader.Name", type.Members
 									.Where(w => w.Attributes.ContainsKey(AttributeType.Attribute))
 									.Select(s =>
 									{
@@ -160,14 +160,14 @@ public partial class XmlParserSourceGenerator
 										{
 											if (s.Type.SpecialType == SpecialType.System_String)
 											{
-												return new KeyValuePair<string, string>($"\"{attributeModel.ConstructorArguments[0].Value}\"", $"result.{s.Name} = reader.Value;");
+												return new KeyValuePair<string, string>($"\"{attributeModel[0].ConstructorArguments[0].Value}\"", $"result.{s.Name} = reader.Value;");
 											}
 
-											return new KeyValuePair<string, string>($"\"{attributeModel.ConstructorArguments[0].Value}\"", $"result.{s.Name} = XmlConvert.To{s.Type.TypeName}(reader.Value);");
+											return new KeyValuePair<string, string>($"\"{attributeModel[0].ConstructorArguments[0].Value}\"", $"result.{s.Name} = XmlConvert.To{s.Type.TypeName}(reader.Value);");
 										}
 
 										return default;
-									}).ToList(), builder);
+									}).ToList());
 							}
 						}
 
@@ -187,20 +187,20 @@ public partial class XmlParserSourceGenerator
 						builder.AppendLine($"{asyncKeyword}reader.Read{asyncSuffix}();");
 						builder.AppendLine();
 
-						AppendSwitch("name", type.Members
-							.Where(w => !w.Attributes.ContainsKey(AttributeType.Attribute))
+						AppendSwitchStatement(builder, "name", type.Members
+							.Where(w => !w.Attributes.ContainsKey(AttributeType.Attribute) && w.Type.SpecialType != SpecialType.System_Object)
 							.Select(s =>
 							{
 								var name = s.Name;
 
 								if (s.Attributes.TryGetValue(AttributeType.Element, out var attribute))
 								{
-									name = attribute.ConstructorArguments[0].Value.ToString();
+									name = attribute[0].ConstructorArguments[0].Value.ToString();
 								}
 
 								if (s.Type.CollectionType != CollectionType.None && s.Attributes.TryGetValue(AttributeType.Array, out var arrayAttribute))
 								{
-									name = arrayAttribute.ConstructorArguments[0].Value.ToString();
+									name = arrayAttribute[0].ConstructorArguments[0].Value.ToString();
 								}
 
 								name = $"\"{name}\"";
@@ -223,7 +223,7 @@ public partial class XmlParserSourceGenerator
 								{
 									var elementName = s.Type.TypeName;
 
-									if (s.Attributes.TryGetValue(AttributeType.ArrayItem, out var arrayItemAttribute) && arrayItemAttribute.NamedParameters.TryGetValue("ElementName", out var result))
+									if (s.Attributes.TryGetValue(AttributeType.ArrayItem, out var arrayItemAttribute) && arrayItemAttribute[0].NamedParameters.TryGetValue("ElementName", out var result))
 									{
 										elementName = result.Value.ToString();
 									}
@@ -237,7 +237,7 @@ public partial class XmlParserSourceGenerator
 									result.{s.Name} = {asyncKeyword}Deserialize{s.Type.TypeName}{asyncSuffix}(reader, depth + 1);
 									""");
 							})
-							.ToList(), builder);
+							.ToList());
 
 						builder.AppendLine();
 						builder.AppendLine($"{asyncKeyword}reader.Skip{asyncSuffix}();");

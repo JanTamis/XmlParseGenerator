@@ -17,9 +17,10 @@ public class Test // : IXmlSerializable
 	[XmlElement("lastName")]
 	public string LastName { get; set; }
 	
-	[XmlElement("age")]
+	[XmlElement("age", typeof(int))]
+	[XmlElement("bigAge", typeof(long))]
 	[DefaultValue(18)]
-	public int Age { get; set; }
+	public object Age { get; set; }
 
 	[XmlArray("children")]
 	[XmlArrayItem(ElementName = "child")]

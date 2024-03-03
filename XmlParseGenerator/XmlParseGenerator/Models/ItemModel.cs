@@ -25,5 +25,5 @@ public record ItemModel
 	
 	public List<MemberModel> Members { get; set; } = new();
 	
-	public Dictionary<AttributeType, AttributeModel> Attributes { get; set; } = new();
+	public Dictionary<AttributeType, List<AttributeModel>> Attributes { get; set; } = new();
 }

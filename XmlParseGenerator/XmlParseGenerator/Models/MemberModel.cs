@@ -11,5 +11,5 @@ public class MemberModel
 	
 	public MemberType MemberType { get; set; }
 
-	public Dictionary<AttributeType, AttributeModel> Attributes { get; set; }
+	public Dictionary<AttributeType, List<AttributeModel>> Attributes { get; set; }
 }

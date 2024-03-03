@@ -49,8 +49,8 @@ public partial class XmlParserSourceGenerator : IIncrementalGenerator
 		CreateSerializeForType(serializerTypes, type);
 		CreateDeserializeForType(deserializerTypes, type);
 
-		var rootName = type.Attributes.TryGetValue(AttributeType.Root, out var rootAttribute) && rootAttribute.ConstructorArguments.Count > 0
-			? rootAttribute.ConstructorArguments[0].Value.ToString()
+		var rootName = type.Attributes.TryGetValue(AttributeType.Root, out var rootAttribute) && rootAttribute[0].ConstructorArguments.Count > 0
+			? rootAttribute[0].ConstructorArguments[0].Value?.ToString()
 			: type.TypeName;
 
 		var defaultWriterSettings = type.HasSerializeContent && type.Members.Any()
@@ -277,9 +277,9 @@ public partial class XmlParserSourceGenerator : IIncrementalGenerator
 			SpecialType.System_UInt64;
 	}
 
-	private Dictionary<AttributeType, AttributeModel> GetAtributes(ISymbol type)
+	private Dictionary<AttributeType, List<AttributeModel>> GetAtributes(ISymbol type)
 	{
-		var result = new Dictionary<AttributeType, AttributeModel>();
+		var result = new Dictionary<AttributeType, List<AttributeModel>>();
 
 		foreach (var attribute in type.GetAttributes())
 		{
@@ -317,7 +317,14 @@ public partial class XmlParserSourceGenerator : IIncrementalGenerator
 				tempAttribute.ConstructorArguments.Add(constructorArgument);
 			}
 
-			result.Add(attributeType, tempAttribute);
+			if (result.TryGetValue(attributeType, out var attributes))
+			{
+				attributes.Add(tempAttribute);
+			}
+			else
+			{
+				result.Add(attributeType, [tempAttribute]);
+			}
 		}
 
 		return result;
@@ -689,17 +696,29 @@ public partial class XmlParserSourceGenerator : IIncrementalGenerator
 		}
 	}
 
-	private void AppendSwitch(string name, List<KeyValuePair<string, string>> statements, IndentedStringBuilder builder)
+	private void AppendSwitchStatement(IndentedStringBuilder builder, string name, List<KeyValuePair<string, string>> statements, string operation = "==", string? defaultStatement = null)
 	{
 		switch (statements.Count)
 		{
 			case 0:
+				if (defaultStatement != null)
+				{
+					builder.AppendLine(defaultStatement);
+				}
 				break;
 			case 1:
 			{
-				using (builder.IndentBlock($"if ({name} == {statements[0].Key})"))
+				using (builder.IndentBlock($"if ({name} {operation} {statements[0].Key})"))
 				{
 					builder.AppendLine(statements[0].Value);
+				}
+
+				if (defaultStatement != null)
+				{
+					using (builder.IndentBlock("else"))
+					{
+						builder.AppendLine(defaultStatement);
+					}
 				}
 
 				break;
@@ -717,10 +736,41 @@ public partial class XmlParserSourceGenerator : IIncrementalGenerator
 							builder.AppendLine("break;");
 						}
 					}
+
+					if (defaultStatement != null)
+					{
+						using (builder.IndentBlock("default:"))
+						{
+							builder.AppendLine(defaultStatement);
+							builder.AppendLine("break;");
+						}
+					}
 				}
 
 				break;
 			}
 		}
+	}
+
+	private string GetFriendlyName(SpecialType type, string fallback)
+	{
+		return type switch
+		{
+			SpecialType.System_Boolean => "bool",
+			SpecialType.System_Byte => "byte",
+			SpecialType.System_Char => "char",
+			SpecialType.System_Decimal => "decimal",
+			SpecialType.System_Double => "double",
+			SpecialType.System_Int16 => "short",
+			SpecialType.System_Int32 => "int",
+			SpecialType.System_Int64 => "long",
+			SpecialType.System_SByte => "sbyte",
+			SpecialType.System_Single => "single",
+			SpecialType.System_String => "string",
+			SpecialType.System_UInt16 => "ushort",
+			SpecialType.System_UInt32 => "uint",
+			SpecialType.System_UInt64 => "ulong",
+			_ => fallback,
+		};
 	}
 }
